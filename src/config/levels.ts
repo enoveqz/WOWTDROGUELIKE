@@ -1,6 +1,7 @@
 import type { Vec2 } from '../core/math.ts';
 import type { BiomeId } from './biomes.ts';
 import type { EnemyId } from './enemies.ts';
+import type { TowerId } from './towers.ts';
 
 export type WaveTheme = 'horde' | 'swift' | 'ranged' | 'heavy' | 'mixed' | 'elite' | 'boss';
 export type ChallengeId = 'ambush' | 'sandstorm' | 'blizzard' | 'meteors';
@@ -34,6 +35,12 @@ export interface LevelDef {
   rewardShards: number;
   /** Benötigt den Abschluss dieses Levels. */
   unlockAfter?: string;
+  /** Längere Vorbereitung vor der ersten Welle (Sekunden). */
+  firstPrep?: number;
+  /** Turmtypen werden erst ab dieser Welle (0-basiert) freigeschaltet – sanfter Einstieg. */
+  towerUnlocks?: Partial<Record<TowerId, number>>;
+  /** Budget-Faktoren für die ersten Wellen (langsamer Start). */
+  earlyEase?: number[];
 }
 
 const p = (x: number, z: number): Vec2 => ({ x, z });
@@ -65,7 +72,10 @@ export const LEVELS: LevelDef[] = [
       { theme: 'boss', paths: [0, 1] },
     ],
     boss: 'boss_treant',
-    upgradeAfter: [1, 3, 5, 7],
+    upgradeAfter: [2, 4, 6, 7],
+    firstPrep: 45,
+    towerUnlocks: { arrow: 0, frost: 2, arcane: 4 },
+    earlyEase: [0.5, 0.65, 0.8, 0.9],
     hpMul: 1,
     budgetMul: 1,
     startGold: 170,
@@ -99,6 +109,8 @@ export const LEVELS: LevelDef[] = [
       { theme: 'boss', paths: [0, 1] },
     ],
     boss: 'boss_scarab',
+    firstPrep: 35,
+    earlyEase: [0.8, 0.9],
     upgradeAfter: [1, 3, 5, 7],
     hpMul: 1.2,
     budgetMul: 1.12,

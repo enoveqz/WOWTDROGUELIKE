@@ -1,5 +1,6 @@
 import { THEME_INFO, type WaveSpec } from '../config/waves.ts';
 import type { Run } from './run.ts';
+import { TOWERS } from '../config/towers.ts';
 
 export type WavePhase = 'prep' | 'active' | 'done';
 
@@ -100,6 +101,9 @@ export class WaveManager {
       return;
     }
     run.notify(`Welle überstanden! +${bonus} Gold`, 'good', true);
+    for (const id of ['arrow', 'arcane', 'frost'] as const) {
+      if (run.towerUnlockWave(id) === this.index && this.index > 0) run.notify(`Neue Verteidigung verfügbar: ${TOWERS[id].name}`, 'good');
+    }
     this.phase = 'prep';
     this.countdown = this.waves[this.index].isBoss ? 25 : 18;
     if (run.level.upgradeAfter.includes(this.index)) run.offerUpgrades();

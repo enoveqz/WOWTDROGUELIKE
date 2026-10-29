@@ -489,3 +489,35 @@ kbd {
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* ── MMORPG-Steuerung: Questlog, Zielrahmen, gesperrte Slots ──── */
+.quest { position: absolute; top: 140px; left: 16px; width: 270px; padding: 12px 14px; border-color: rgba(251, 191, 36, 0.35); }
+.quest.pop { animation: questPop 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+@keyframes questPop { from { opacity: 0; transform: translateX(-12px); } to { opacity: 1; transform: none; } }
+.quest-head { display: flex; gap: 6px; align-items: center; color: var(--gold); font-size: 0.72rem; letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 4px; }
+.quest b { font-family: var(--display); font-size: 1rem; color: #fff6d5; }
+.quest p { margin: 6px 0 0; font-size: 0.84rem; line-height: 1.5; color: #d6deec; }
+.quest kbd { font-size: 0.7em; }
+.quest ~ .hud-preview { top: 300px; }
+.target-frame { width: 300px; padding: 8px 12px 10px; }
+.target-frame.is-attacking { border-color: rgba(244, 63, 94, 0.55); box-shadow: var(--shadow), 0 0 18px rgba(244, 63, 94, 0.25); }
+.tf-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 5px; font-size: 0.85rem; }
+.tf-head b { font-family: var(--display); color: #ffe4e6; }
+.tf-head span { color: var(--muted); font-size: 0.72rem; }
+.bar-target { height: 12px; }
+.bar-target > i { background: linear-gradient(90deg, #b91c1c, #f87171); }
+.slot.is-locked { filter: grayscale(1) brightness(0.55); }
+.slot.is-locked .slot-ico { color: var(--muted); }
+.tower-opt.is-locked { opacity: 0.55; }
+.to-lock { font-style: normal; color: var(--gold) !important; display: inline-flex; gap: 4px; align-items: center; }
+.btn-danger.is-confirm { background: rgba(244, 63, 94, 0.3); border-color: var(--red); animation: blink 0.9s infinite; }
+.lock-note { color: var(--gold); display: inline-flex; gap: 3px; align-items: center; }
+
+/* Performance: im Kampf leichtere Unschärfe, auf „Niedrig“ ganz ohne */
+.hud .glass, .tower-panel { backdrop-filter: blur(7px) saturate(130%); -webkit-backdrop-filter: blur(7px) saturate(130%); }
+body[data-quality='low'] .glass, body[data-quality='low'] .tower-panel, body[data-quality='low'] .hud-overlay, body[data-quality='low'] .toast {
+  backdrop-filter: none; -webkit-backdrop-filter: none; background: rgba(10, 15, 30, 0.86);
+}
+.stat { gap: 6px; }
+.stat span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.stat b { white-space: nowrap; }

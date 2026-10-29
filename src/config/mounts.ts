@@ -15,6 +15,8 @@ export interface MountDef {
   /** Zusätzliche Schadensreduktion im Sattel. */
   mountedArmor: number;
   unlockCost: number;
+  /** Kontostufe, ab der dies freigeschaltet wird (Kosten 0) bzw. kaufbar ist. */
+  unlockLevel: number;
   colors: { body: number; accent: number; mane: number };
 }
 
@@ -32,6 +34,7 @@ export const MOUNTS: Record<MountId, MountDef> = {
     chargeCooldown: 8,
     mountedArmor: 0,
     unlockCost: 0,
+    unlockLevel: 1,
     colors: { body: 0x7a4a2a, accent: 0x9b1c1c, mane: 0x2a1a10 },
   },
   wolf: {
@@ -47,6 +50,7 @@ export const MOUNTS: Record<MountId, MountDef> = {
     chargeCooldown: 7,
     mountedArmor: 0.05,
     unlockCost: 100,
+    unlockLevel: 2,
     colors: { body: 0x3d4250, accent: 0x7c3aed, mane: 0x1b1d24 },
   },
   lizard: {
@@ -62,6 +66,7 @@ export const MOUNTS: Record<MountId, MountDef> = {
     chargeCooldown: 8,
     mountedArmor: 0.15,
     unlockCost: 160,
+    unlockLevel: 3,
     colors: { body: 0x9a3412, accent: 0xfbbf24, mane: 0x431407 },
   },
 };

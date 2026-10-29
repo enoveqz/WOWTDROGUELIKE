@@ -36,6 +36,8 @@ export interface ClassDef {
   attack: BasicAttackDef;
   skills: [SkillDef, SkillDef, SkillDef, SkillDef];
   unlockCost: number;
+  /** Kontostufe, ab der dies freigeschaltet wird (Kosten 0) bzw. kaufbar ist. */
+  unlockLevel: number;
   /** Visuelle Ausrüstung des prozeduralen Modells. */
   gear: 'sword' | 'staff' | 'daggers' | 'bow';
   armorColor: number;
@@ -60,6 +62,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
       { id: 'earthsplit', name: 'Erdspalter', desc: 'Spaltet den Boden in einem 7-m-Kegel: 300 % Schaden und 50 % Verlangsamung für 3 s.', icon: 'axe', cooldown: 16, cost: 40 },
     ],
     unlockCost: 0,
+    unlockLevel: 1,
     gear: 'sword',
     armorColor: 0x8a94a6,
     trimColor: 0xc9a227,
@@ -81,6 +84,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
       { id: 'chain', name: 'Kettenblitz', desc: 'Blitz springt zwischen bis zu 7 Gegnern (200 %, −15 % pro Sprung).', icon: 'bolt', cooldown: 10, cost: 45 },
     ],
     unlockCost: 0,
+    unlockLevel: 3,
     gear: 'staff',
     armorColor: 0x3b2f7a,
     trimColor: 0x22d3ee,
@@ -102,6 +106,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
       { id: 'execute', name: 'Todesstoß', desc: 'Vernichtender Stoß (400 %), doppelter Schaden unter 35 % Leben. Setzt die Abklingzeit bei Tötung zurück.', icon: 'skull', cooldown: 14, cost: 40 },
     ],
     unlockCost: 80,
+    unlockLevel: 4,
     gear: 'daggers',
     armorColor: 0x2b2f3a,
     trimColor: 0x8b5cf6,
@@ -123,6 +128,7 @@ export const CLASSES: Record<ClassId, ClassDef> = {
       { id: 'volley', name: 'Pfeilhagel', desc: 'Lässt 3 s lang Pfeile auf einen 5-m-Bereich regnen (6 × 60 %) und verlangsamt um 30 %.', icon: 'rain', cooldown: 14, cost: 45 },
     ],
     unlockCost: 0,
+    unlockLevel: 2,
     gear: 'bow',
     armorColor: 0x4a5d3a,
     trimColor: 0x86efac,

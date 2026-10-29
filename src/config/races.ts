@@ -17,6 +17,8 @@ export interface RaceDef {
   fx: number;
   mods: StatMod[];
   unlockCost: number;
+  /** Kontostufe, ab der dies freigeschaltet wird (Kosten 0) bzw. kaufbar ist. */
+  unlockLevel: number;
   look: {
     skin: number;
     hair: number;
@@ -47,6 +49,7 @@ export const RACES: Record<RaceId, RaceDef> = {
       { stat: 'gold', mul: 0.1 },
     ],
     unlockCost: 0,
+    unlockLevel: 1,
     look: { skin: 0xe2b48c, hair: 0x5b3a22, height: 1, bulk: 1, ears: 'round', tusks: false, beard: false },
   },
   elf: {
@@ -67,6 +70,7 @@ export const RACES: Record<RaceId, RaceDef> = {
       { stat: 'maxHp', mul: -0.05 },
     ],
     unlockCost: 0,
+    unlockLevel: 2,
     look: { skin: 0xf0d2b4, hair: 0xe9e3c6, height: 1.06, bulk: 0.88, ears: 'pointy', tusks: false, beard: false },
   },
   orc: {
@@ -83,6 +87,7 @@ export const RACES: Record<RaceId, RaceDef> = {
     fx: 0xf97316,
     mods: [{ stat: 'maxHp', mul: 0.1 }],
     unlockCost: 0,
+    unlockLevel: 3,
     look: { skin: 0x6f9a4a, hair: 0x1f1a17, height: 1.08, bulk: 1.22, ears: 'pointy', tusks: true, beard: false },
   },
   dwarf: {
@@ -102,6 +107,7 @@ export const RACES: Record<RaceId, RaceDef> = {
       { stat: 'towerDmg', mul: 0.15 },
     ],
     unlockCost: 120,
+    unlockLevel: 4,
     look: { skin: 0xd9a17e, hair: 0xb4532a, height: 0.8, bulk: 1.25, ears: 'round', tusks: false, beard: true },
   },
 };

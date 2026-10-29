@@ -8,12 +8,12 @@ import { computeStats } from '../src/config/stats.ts';
 import { rollUpgradeOffer, activeSynergies, UPGRADES, rollRunEvent } from '../src/config/upgrades.ts';
 import { generateWaves } from '../src/config/waves.ts';
 import { LEVELS } from '../src/config/levels.ts';
-import { canRankUp, talentMods, TALENTS, TALENT_BY_ID } from '../src/config/talents.ts';
+import { accountXpForLevel, canRankUp, SKILL_UNLOCK_LEVEL, talentMods, TALENTS, TALENT_BY_ID } from '../src/config/talents.ts';
 import { CLASSES, CLASS_ORDER } from '../src/config/classes.ts';
 import { RACES, RACE_ORDER } from '../src/config/races.ts';
 import { mountLevelFromXp } from '../src/config/mounts.ts';
 import { SaveManager, migrate, type StorageLike } from '../src/meta/save.ts';
-import { applyRewards, buyUnlock, rankUpTalent, talentPoints } from '../src/meta/progression.ts';
+import { applyRewards, buyUnlock, levelLocked, rankUpTalent, syncLevelUnlocks, talentPoints } from '../src/meta/progression.ts';
 
 let passed = 0;
 let failed = 0;
@@ -165,6 +165,8 @@ test('Speichern/Laden, Migration, Belohnungen und Freischaltungen', () => {
   const sm = new SaveManager(store);
   assert(sm.persistent, 'Storage nicht persistent');
   sm.data.shards = 500;
+  assert(!buyUnlock(sm.data, 'class', 'rogue'), 'Schurke trotz zu niedriger Kontostufe kaufbar');
+  sm.data.accountXp = 2000;
   assert(buyUnlock(sm.data, 'class', 'rogue'), 'Schurke nicht kaufbar');
   assert(sm.data.unlocked.classes.includes('rogue'), 'Schurke fehlt');
   const summary = applyRewards(sm.data, {
@@ -178,7 +180,27 @@ test('Speichern/Laden, Migration, Belohnungen und Freischaltungen', () => {
   assert(sm2.data.levels.whisperwood.cleared, 'Fortschritt nicht geladen');
   assert(sm2.data.talents.k_power === 1, 'Talent nicht geladen');
   const migrated = migrate({ shards: 3 });
-  assert(migrated.shards === 3 && migrated.unlocked.races.length >= 3, 'Migration unvollständig');
+  assert(migrated.shards === 3 && migrated.unlocked.races.includes('human'), 'Migration unvollständig');
+  assert(migrate({ unlocked: { races: ['elf'], classes: [], mounts: [] } }).unlocked.races.includes('elf'), 'Alte Freischaltungen verloren');
+});
+
+test('Sanfter Einstieg: Inhalte werden mit der Kontostufe freigeschaltet', () => {
+  const sm = new SaveManager(new MemStore());
+  const d = sm.data;
+  assert(d.unlocked.races.length === 1 && d.unlocked.classes.length === 1, 'Neues Konto hat zu viele Optionen');
+  assert(levelLocked(d, 'race', 'elf'), 'Elfen sofort verfügbar');
+  d.accountXp = accountXpForLevel(1); // Stufe 2
+  const got = syncLevelUnlocks(d);
+  assert(d.unlocked.races.includes('elf') && d.unlocked.classes.includes('ranger'), `Stufe 2 schaltet nicht frei: ${got.join(', ')}`);
+  assert(!d.unlocked.classes.includes('mage'), 'Magier zu früh');
+  assert(SKILL_UNLOCK_LEVEL[0] === 1 && SKILL_UNLOCK_LEVEL[3] > 1, 'Fähigkeiten-Freischaltung unplausibel');
+});
+
+test('Erstes Gebiet startet mit kleineren Wellen', () => {
+  const lv = LEVELS[0];
+  const waves = generateWaves(lv, new Rng(3));
+  assert(waves[0].total <= 6, `Welle 1 zu groß (${waves[0].total})`);
+  assert(waves[0].total < waves[4].total, 'Keine Steigerung');
 });
 
 console.log(`\n${passed} bestanden, ${failed} fehlgeschlagen`);

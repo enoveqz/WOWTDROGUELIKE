@@ -6,7 +6,7 @@ import type { MountId } from '../config/mounts.ts';
 import { RACES, type RaceId } from '../config/races.ts';
 import { computeStats, type StatBlock, type StatMod } from '../config/stats.ts';
 import { talentMods } from '../config/talents.ts';
-import { activeSynergies, rollRunEvent, rollUpgradeOffer, UPGRADE_BY_ID, type RunEventDef, type SynergyId, type UpgradeDef, type UpgradeFlag } from '../config/upgrades.ts';
+import { activeSynergies, rollRunEvent, RUN_EVENTS, rollUpgradeOffer, UPGRADE_BY_ID, type RunEventDef, type SynergyId, type UpgradeDef, type UpgradeFlag } from '../config/upgrades.ts';
 import { generateWaves } from '../config/waves.ts';
 import { dist, dist2 } from '../core/math.ts';
 import { Rng } from '../core/rng.ts';
@@ -21,6 +21,9 @@ import type { Input } from './input.ts';
 import { Player } from './player.ts';
 import { TowerManager } from './towers.ts';
 import { WaveManager } from './waves.ts';
+import { Tutorial } from './tutorial.ts';
+import { accountLevelFromXp } from '../config/talents.ts';
+import type { TowerId } from '../config/towers.ts';
 
 export type FloatKind = 'hit' | 'crit' | 'dot' | 'tower' | 'heal' | 'gold' | 'info';
 export type NoticeKind = 'info' | 'good' | 'warn' | 'danger';
@@ -106,7 +109,13 @@ export class Run {
   private endTimer = -1;
   private ambushAnnounced = false;
   readonly aim = new THREE.Vector3();
-  aimEnemy: Enemy | null = null;
+  /** Gewähltes Ziel (Linksklick / Tab), Rechtsklick startet den Angriff. */
+  target: Enemy | null = null;
+  private targetRing: THREE.Mesh;
+  readonly accountLevel: number;
+  readonly tutorial: Tutorial | null;
+  private panelByKey = false;
+  private tmpV = new THREE.Vector3();
   private fog: THREE.Fog;
 
   constructor(opts: { save: SaveManager; audio: AudioEngine; hooks: RunHooks; selection: Selection; input: Input; aspect: number; seed?: number }) {
@@ -118,7 +127,9 @@ export class Run {
     this.level = LEVEL_BY_ID[opts.selection.level];
     const settings = opts.save.data.settings;
     this.rng = new Rng(opts.seed ?? Rng.randomSeed());
-    this.event = rollRunEvent(this.rng.fork(1));
+    this.accountLevel = accountLevelFromXp(opts.save.data.accountXp).level;
+    // Der allererste Run ist bewusst ruhig – keine Zufallsereignisse
+    this.event = opts.save.data.stats.runs === 0 ? RUN_EVENTS[0] : rollRunEvent(this.rng.fork(1));
     this.world = new World(this.level, settings.quality);
     this.scene.add(this.world.group);
     const b = this.world.biome;
@@ -148,8 +159,27 @@ export class Run {
     const pz = portals.reduce((a, v) => a + v.z, 0) / portals.length;
     const c = this.level.crystal;
     this.camera.yaw = Math.hypot(px - c.x, pz - c.z) > 4 ? Math.atan2(px - c.x, pz - c.z) : 0;
+    this.player.facing = this.camera.yaw;
     this.camera.snapTo(s.x, 0, s.z);
     this.audio.setMusic(this.level.biome);
+    if (this.level.firstPrep) this.waves.countdown = this.level.firstPrep;
+    this.targetRing = new THREE.Mesh(
+      new THREE.RingGeometry(0.85, 1, 40).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0xff4d4d, transparent: true, opacity: 0.85, depthWrite: false }),
+    );
+    this.targetRing.visible = false;
+    this.scene.add(this.targetRing);
+    this.tutorial = opts.save.data.tutorialDone ? null : new Tutorial(this);
+  }
+
+  /** Ist dieser Turmtyp in diesem Run schon verfügbar? (sanfter Einstieg im ersten Gebiet) */
+  towerUnlockWave(id: TowerId): number {
+    if (!this.level.towerUnlocks || this.accountLevel >= 4) return 0;
+    return this.level.towerUnlocks[id] ?? 0;
+  }
+
+  towerAvailable(id: TowerId): boolean {
+    return this.waves.index >= this.towerUnlockWave(id);
   }
 
   get waveIndexForScaling(): number {
@@ -302,7 +332,60 @@ export class Run {
     this.notify(this.buildMode ? 'Baumodus: Klicke auf einen Bauplatz' : 'Baumodus beendet', 'info');
   }
 
-  selectPad(i: number): void {
+  setTarget(e: Enemy | null, attack = false): void {
+    this.target = e;
+    this.player.autoAttack = !!e && (attack || this.player.autoAttack);
+    if (!e) this.player.autoAttack = false;
+  }
+
+  /** Gegner unter einem Bildschirmpunkt (Projektion der Körpermitte). */
+  pickEnemy(ndcX: number, ndcY: number): Enemy | null {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    let best: Enemy | null = null;
+    let bd = Infinity;
+    for (const e of this.enemies.list) {
+      if (!e.alive) continue;
+      const v = this.camera.project(e.x, e.y + e.rig.barHeight * 0.5, e.z, this.tmpV);
+      if (v.z > 1) continue;
+      const dx = ((v.x - ndcX) * w) / 2;
+      const dy = ((v.y - ndcY) * h) / 2;
+      const d = Math.hypot(dx, dy);
+      const camDist = this.camera.camera.position.distanceTo(this.tmpV.set(e.x, e.y, e.z));
+      const radiusPx = Math.max(26, (e.rig.barHeight * 0.6 * h) / Math.max(4, camDist));
+      if (d < radiusPx && d < bd) {
+        bd = d;
+        best = e;
+      }
+    }
+    return best;
+  }
+
+  /** Tab: nächstes Ziel vor dem Helden, reihum. */
+  cycleTarget(): void {
+    const p = this.player;
+    const fx = Math.sin(p.facing);
+    const fz = Math.cos(p.facing);
+    const cands = this.enemies.list
+      .filter((e) => e.alive && dist2(e.x, e.z, p.x, p.z) < 30 * 30)
+      .map((e) => {
+        const dx = e.x - p.x;
+        const dz = e.z - p.z;
+        const d = Math.hypot(dx, dz) || 1;
+        return { e, score: d * (1.6 - (dx * fx + dz * fz) / d) };
+      })
+      .sort((a, b) => a.score - b.score)
+      .map((c) => c.e);
+    if (cands.length === 0) {
+      this.notify('Kein Ziel in der Nähe', 'info');
+      return;
+    }
+    const i = this.target ? cands.indexOf(this.target) : -1;
+    this.setTarget(cands[(i + 1) % cands.length]);
+  }
+
+  selectPad(i: number, byKey = false): void {
+    this.panelByKey = byKey;
     this.selectedPad = i;
     this.towers.showRanges(true, this.buildMode ? -1 : i);
     this.ui.openTowerPanel(i);
@@ -325,6 +408,10 @@ export class Run {
     }
     if (this.buildMode) {
       this.toggleBuildMode();
+      return;
+    }
+    if (this.target) {
+      this.setTarget(null);
       return;
     }
     this.ui.requestPause();
@@ -359,41 +446,80 @@ export class Run {
       if (input.pressed('nextWave')) this.waves.callEarly();
     }
 
-    // Kamera-Eingaben
-    if (input.wheel) this.camera.zoom(input.wheel);
-    if (input.rightDown && input.dragDX) this.camera.rotate(input.dragDX, this.save.data.settings.cameraSensitivity);
-
-    // Ziel unter dem Mauszeiger
-    this.camera.groundPoint(input.mouse.x, input.mouse.y, (x, z) => this.world.heightAt(x, z), this.aim);
-    this.aimEnemy = null;
-    let bestD = 2.4 * 2.4;
-    for (const e of this.enemies.list) {
-      if (!e.alive) continue;
-      const d = dist2(e.x, e.z, this.aim.x, this.aim.z) - e.radius * e.radius;
-      if (d < bestD) {
-        bestD = d;
-        this.aimEnemy = e;
-      }
-    }
-
-    // Bauplätze
-    this.hoverPad = this.buildMode || this.selectedPad >= 0 ? this.nearestPad(this.aim.x, this.aim.z, 2.4) : -1;
     const p = this.player;
+    const sens = this.save.data.settings.cameraSensitivity;
+
+    // Kamera: Ziehen mit linker oder rechter Maustaste dreht/neigt
+    if (input.wheel) this.camera.zoom(input.wheel);
+    if ((input.leftDrag || input.rightDrag) && (input.lookDX || input.lookDY)) this.camera.orbit(input.lookDX, input.lookDY, sens);
+
+    // Ziel ungültig?
+    if (this.target && !this.target.alive) this.setTarget(null);
+
+    // Bauplatz unter dem Mauszeiger (für Baumodus & Klicks)
+    if (!input.leftDown && !input.rightDown) this.camera.groundPoint(input.mouse.x, input.mouse.y, (x, z) => this.world.heightAt(x, z), this.aim);
+    this.hoverPad = this.nearestPad(this.aim.x, this.aim.z, 2.6);
     const nearPad = p.alive ? this.nearestPad(p.x, p.z, 3.6) : -1;
+
     if (!this.ended) {
-      if (this.buildMode && input.mouseClicked && input.mouse.inside && this.hoverPad >= 0) this.selectPad(this.hoverPad);
+      if (input.pressed('target')) this.cycleTarget();
+      // Linksklick: Ziel wählen – oder Bauplatz öffnen
+      const lc = input.leftClick;
+      if (lc) {
+        const e = this.pickEnemy(lc.x, lc.y);
+        if (e) this.setTarget(e);
+        else {
+          this.camera.groundPoint(lc.x, lc.y, (x, z) => this.world.heightAt(x, z), this.aim);
+          const pad = this.nearestPad(this.aim.x, this.aim.z, 2.6);
+          if (pad >= 0) this.selectPad(pad);
+          else if (this.selectedPad >= 0) this.closeBuild();
+          else this.setTarget(null);
+        }
+      }
+      // Rechtsklick: angreifen – oder mit Bauplatz interagieren
+      const rc = input.rightClick;
+      if (rc) {
+        const e = this.pickEnemy(rc.x, rc.y);
+        if (e) this.setTarget(e, true);
+        else {
+          this.camera.groundPoint(rc.x, rc.y, (x, z) => this.world.heightAt(x, z), this.aim);
+          const pad = this.nearestPad(this.aim.x, this.aim.z, 2.6);
+          if (pad >= 0) this.selectPad(pad);
+        }
+      }
       if (input.pressed('interact')) {
-        if (nearPad >= 0 && this.selectedPad !== nearPad) this.selectPad(nearPad);
+        if (nearPad >= 0 && this.selectedPad !== nearPad) this.selectPad(nearPad, true);
         else if (this.selectedPad >= 0) this.closeBuild();
         else p.toggleMount();
       }
-      if (this.selectedPad >= 0) this.handlePanelKeys();
+      // Per Taste geöffnetes Turmmenü schließt sich, wenn man weggeht
+      if (this.selectedPad >= 0 && this.panelByKey) {
+        const pad = this.level.pads[this.selectedPad];
+        if (dist(p.x, p.z, pad.x, pad.z) > 8) this.closeBuild();
+      }
     }
     this.nearPad = nearPad;
-    this.world.setPadHighlight(this.buildMode || this.selectedPad >= 0, this.selectedPad >= 0 ? this.selectedPad : this.hoverPad, this.towers.towers.map((t) => !!t));
+    this.world.setPadHighlight(this.buildMode || this.selectedPad >= 0, this.selectedPad >= 0 ? this.selectedPad : this.buildMode ? this.hoverPad : -1, this.towers.towers.map((t) => !!t));
 
-    const allowCombat = !this.ended && !this.buildMode && this.selectedPad < 0;
-    p.update(dt, input, this.aim, this.aimEnemy, allowCombat);
+    // Das Turmmenü ist nicht modal: Kämpfen bleibt jederzeit möglich
+    p.update(dt, input, this.target, !this.ended);
+
+    // Kamera folgt der Figur, solange man sie nicht selbst führt
+    if (!input.leftDown && !input.rightDown) {
+      const moving = Math.hypot(p.vx, p.vz) > 0.5;
+      if (moving || p.turning) this.camera.followBehind(p.facing, dt, p.turning ? 9 : 3);
+    }
+
+    // Zielmarkierung
+    const t = this.target;
+    this.targetRing.visible = !!t;
+    if (t) {
+      const r = t.radius + 0.5;
+      this.targetRing.position.set(t.x, t.y + 0.08, t.z);
+      this.targetRing.scale.setScalar(r);
+      (this.targetRing.material as THREE.MeshBasicMaterial).color.setHex(p.autoAttack ? 0xff4d4d : 0xffd166);
+    }
+    this.tutorial?.update(dt);
 
     if (!this.ended || !this.victoryFlag) this.waves.update(this.ended ? 0 : dt);
     this.enemies.update(dt);
@@ -410,7 +536,7 @@ export class Run {
     // Kamera & Welt
     const focusX = p.alive ? p.x : this.level.crystal.x;
     const focusZ = p.alive ? p.z : this.level.crystal.z;
-    this.camera.update(dt, focusX, p.alive ? p.y : 0, focusZ);
+    this.camera.update(dt, focusX, p.alive ? p.y : 0, focusZ, (x, z) => this.world.heightAt(x, z));
     const weatherMul = this.challengeActive ? 3 : 1;
     this.world.update(dt, this.camera.camera.position, weatherMul);
     const b = this.world.biome;
@@ -429,25 +555,6 @@ export class Run {
   }
 
   nearPad = -1;
-
-  private handlePanelKeys(): void {
-    const input = this.input;
-    const i = this.selectedPad;
-    const t = this.towers.towers[i];
-    const keys = ['Digit1', 'Digit2', 'Digit3'];
-    if (!t) {
-      const ids = ['arrow', 'arcane', 'frost'] as const;
-      keys.forEach((k, n) => {
-        if (input.pressedCode(k) && this.towers.build(i, ids[n])) this.selectPad(i);
-      });
-    } else {
-      if (input.pressedCode('Digit1') && this.towers.upgrade(i)) this.selectPad(i);
-      if (input.pressedCode('Digit2')) {
-        this.towers.sell(i);
-        this.selectPad(i);
-      }
-    }
-  }
 
   private updateChallenge(dt: number): void {
     const id = this.level.challenge.id;

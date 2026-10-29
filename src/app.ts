@@ -4,7 +4,7 @@ import { formatTime } from './core/math.ts';
 import { Input } from './game/input.ts';
 import { Run } from './game/run.ts';
 import { Showcase } from './game/showcase.ts';
-import { applyRewards, isLevelUnlocked, isUnlocked, type RunResult } from './meta/progression.ts';
+import { applyRewards, isLevelUnlocked, isUnlocked, syncLevelUnlocks, type RunResult } from './meta/progression.ts';
 import { SaveManager } from './meta/save.ts';
 import { LEVEL_BY_ID } from './config/levels.ts';
 import { fmt } from './ui/dom.ts';
@@ -44,6 +44,8 @@ export class App {
     this.audio = new AudioEngine(s);
     this.input = new Input(canvas, this.save.data.keys);
     this.showcase = new Showcase(window.innerWidth / window.innerHeight);
+    // Bereits erreichte Kontostufen schalten kostenlose Inhalte frei
+    if (syncLevelUnlocks(this.save.data).length) this.save.save();
     this.ui = new UI(this, uiRoot);
     this.applySettings();
 
@@ -97,6 +99,7 @@ export class App {
 
   applySettings(): void {
     const s = this.save.data.settings;
+    document.body.dataset.quality = s.quality;
     this.audio.applySettings(s);
     const shadows = s.shadows && s.quality !== 'low';
     if (this.renderer.shadowMap.enabled !== shadows) {
@@ -160,8 +163,7 @@ export class App {
     if (!d.seenTutorial) {
       d.seenTutorial = true;
       this.save.save();
-      setTimeout(() => this.ui.notify('Tipp: Baue mit E an einem leuchtenden Bauplatz deinen ersten Turm.', 'info'), 3200);
-      setTimeout(() => this.ui.notify('Tipp: N ruft die nächste Welle früher – für Bonusgold.', 'info'), 7000);
+
     }
   }
 

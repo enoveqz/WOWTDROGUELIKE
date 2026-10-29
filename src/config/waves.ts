@@ -60,7 +60,7 @@ export function generateWaves(level: LevelDef, rng: Rng, opts: { extraElites?: b
   level.waves.forEach((tpl, index) => {
     const isBoss = tpl.theme === 'boss';
     const variance = rng.range(0.9, 1.12);
-    const budget = waveBudget(level, index) * variance * (isBoss ? 0.6 : 1);
+    const budget = waveBudget(level, index) * variance * (isBoss ? 0.6 : 1) * (level.earlyEase?.[index] ?? 1);
     const groups: SpawnGroup[] = [];
     const speedUp = 1 + 0.04 * index;
     let delay = 0;
@@ -79,7 +79,7 @@ export function generateWaves(level: LevelDef, rng: Rng, opts: { extraElites?: b
 
     for (const [id, share] of entries) {
       const def = ENEMIES[id];
-      const count = Math.max(id === 'elite' || id === 'shaman' ? 1 : 2, Math.round((budget * (share / shareSum)) / def.cost));
+      const count = Math.max(id === 'elite' || id === 'shaman' ? 1 : index < 2 ? 1 : 2, Math.round((budget * (share / shareSum)) / def.cost));
       // Auf aktive Pfade verteilen.
       const per = splitCount(count, tpl.paths.length);
       tpl.paths.forEach((pathIdx, i) => {

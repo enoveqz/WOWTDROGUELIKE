@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import { CLASSES, type ClassDef } from '../config/classes.ts';
 import { MOUNTS, mountLevelBonus, mountLevelFromXp, type MountDef } from '../config/mounts.ts';
 import { RACES, type RaceDef } from '../config/races.ts';
-import { talentFlagRank } from '../config/talents.ts';
+import { RACIAL_UNLOCK_LEVEL, SKILL_UNLOCK_LEVEL, talentFlagRank } from '../config/talents.ts';
 import { clamp, damp, dampAngle, dist, dist2 } from '../core/math.ts';
 import { makeMaterialsUnique, setFlash } from '../world/assets.ts';
 import { createHero, createMount, createPet, type HeroRig, type MountRig, type PetRig } from '../world/models.ts';
@@ -82,7 +82,13 @@ export class Player {
   mountXpGain = 0;
   private walkPhase = 0;
   private gallop = 0;
-  private lastAimTime = 0;
+  /** Automatischer Standardangriff auf das gewählte Ziel (Rechtsklick). */
+  autoAttack = false;
+  attacksDone = 0;
+  turning = false;
+  distanceWalked = 0;
+  readonly aimPoint = new THREE.Vector3();
+  private rangeWarnT = 0;
   private regenAcc = 0;
   /** Sekunden seit dem letzten erlittenen Treffer (für Regeneration außerhalb des Kampfes). */
   sinceHit = 99;
@@ -244,7 +250,7 @@ export class Player {
     this.facing = Math.atan2(dx, dz);
   }
 
-  update(dt: number, input: Input, aim: THREE.Vector3, aimEnemy: Enemy | null, allowCombat: boolean): void {
+  update(dt: number, input: Input, target: Enemy | null, allowCombat: boolean): void {
     const run = this.run;
     const stats = run.stats;
     for (const [k, v] of this.buffs) {
@@ -296,16 +302,33 @@ export class Player {
       if (this.mountCastT < 0) this.setMounted(true);
     }
 
-    // ── Bewegung ───────────────────────────────────────────
-    const f = run.camera.forward();
-    const rx = -f.z;
-    const rz = f.x;
-    let mx = 0;
-    let mz = 0;
-    if (input.held('up')) ((mx += f.x), (mz += f.z));
-    if (input.held('down')) ((mx -= f.x), (mz -= f.z));
-    if (input.held('right')) ((mx += rx), (mz += rz));
-    if (input.held('left')) ((mx -= rx), (mz -= rz));
+    // ── Drehen & Bewegung (MMORPG-Steuerung) ────────────────
+    // RMB gehalten: Figur blickt in Kamerarichtung, A/D laufen seitwärts.
+    // Sonst: A/D drehen die Figur. Beide Maustasten: vorwärts laufen.
+    const mouseLook = input.rightDown;
+    const busy = this.mountCastT >= 0 || this.status.disabled;
+    let turn = 0;
+    if (!mouseLook) {
+      if (input.held('left')) turn += 1;
+      if (input.held('right')) turn -= 1;
+    }
+    this.turning = turn !== 0;
+    if (!this.dash) {
+      if (mouseLook) this.facing = run.camera.yaw;
+      else if (turn && !busy) this.facing += turn * (this.mounted ? 2.4 : 3.1) * dt;
+    }
+    let fwd = 0;
+    let strafe = 0;
+    if (input.held('up') || (input.leftDown && input.rightDown)) fwd += 1;
+    if (input.held('down')) fwd -= 1;
+    if (mouseLook) {
+      if (input.held('right')) strafe += 1;
+      if (input.held('left')) strafe -= 1;
+    }
+    const fx = Math.sin(this.facing);
+    const fz = Math.cos(this.facing);
+    let mx = fx * fwd + -fz * strafe;
+    let mz = fz * fwd + fx * strafe;
     const ml = Math.hypot(mx, mz);
     if (ml > 0) ((mx /= ml), (mz /= ml));
     if (ml > 0 && this.mountCastT >= 0) {
@@ -314,10 +337,11 @@ export class Player {
     }
 
     let speed = stats.moveSpeed * this.status.speedMul();
+    if (fwd < 0 && strafe === 0) speed *= 0.6; // rückwärts langsamer
     if (run.challengeActive && run.level.challenge.id === 'blizzard') speed *= 0.75;
     if (this.mounted) speed *= this.mountDef.speed * stats.mountSpeed * (1 + mountLevelBonus(this.mountLevel).speed);
-    if (this.mountCastT >= 0 || this.status.disabled) speed = 0;
-    const accel = this.mounted ? 5 : 14;
+    if (busy) speed = 0;
+    const accel = this.mounted ? 6 : 16;
 
     const prevX = this.x;
     const prevZ = this.z;
@@ -348,6 +372,7 @@ export class Player {
       run.world.resolve(this, this.mounted ? 0.8 : 0.5);
     }
     const moved = dist(prevX, prevZ, this.x, this.z);
+    this.distanceWalked += moved;
     if (this.mounted) {
       this.distAcc += moved;
       if (this.distAcc > 10) {
@@ -357,25 +382,47 @@ export class Player {
     }
     this.y = run.world.heightAt(this.x, this.z);
 
-    // ── Aktionen ───────────────────────────────────────────
-    const aimDx = aim.x - this.x;
-    const aimDz = aim.z - this.z;
+    // ── Ziel & Aktionen ────────────────────────────────────
+    if (target && !target.alive) target = null;
+    const soft = target ?? this.softTarget();
+    const aim = this.aimPoint;
+    if (soft) aim.set(soft.x, run.world.heightAt(soft.x, soft.z), soft.z);
+    else aim.set(this.x + fx * 8, this.y, this.z + fz * 8);
     if (allowCombat) {
       if (input.pressed('dodge')) this.tryDodgeOrCharge(mx, mz);
       if (input.pressed('racial')) this.tryRacial(aim);
-      for (let i = 0; i < 4; i++) if (input.pressed(`skill${i + 1}` as 'skill1')) this.trySkill(i, aim, aimEnemy);
-      if (input.mouseDown && input.mouse.inside) this.tryAttack(aim, aimEnemy);
+      for (let i = 0; i < 4; i++) if (input.pressed(`skill${i + 1}` as 'skill1')) this.trySkill(i, aim, soft);
+      if (this.autoAttack && target) this.tryAttack(target, mouseLook);
     }
+    if (!target) this.autoAttack = false;
 
-    // Blickrichtung
-    const aiming = performance.now() - this.lastAimTime < 450;
-    if (!this.dash) {
-      if (aiming && !this.mounted) this.facing = dampAngle(this.facing, Math.atan2(aimDx, aimDz), 18, dt);
-      else if (Math.hypot(this.vx, this.vz) > 0.4) this.facing = dampAngle(this.facing, Math.atan2(this.vx, this.vz), this.mounted ? 7 : 14, dt);
+    // Im Kampf blickt die Figur automatisch zum Ziel (außer bei Maussteuerung)
+    if (!this.dash && !mouseLook && !this.turning && target && this.autoAttack && ml === 0) {
+      this.facing = dampAngle(this.facing, Math.atan2(target.x - this.x, target.z - this.z), 10, dt);
     }
 
     this.animate(dt, Math.hypot(this.vx, this.vz));
     this.updatePet(dt);
+  }
+
+  /** Nächster Gegner im Blickfeld (für Fähigkeiten ohne gewähltes Ziel). */
+  softTarget(): Enemy | null {
+    let best: Enemy | null = null;
+    let bd = 22 * 22;
+    const fx = Math.sin(this.facing);
+    const fz = Math.cos(this.facing);
+    for (const e of this.run.enemies.list) {
+      if (!e.alive) continue;
+      const dx = e.x - this.x;
+      const dz = e.z - this.z;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > bd) continue;
+      const d = Math.sqrt(d2) || 1;
+      if ((dx * fx + dz * fz) / d < 0.35 && d > 3) continue;
+      bd = d2;
+      best = e;
+    }
+    return best;
   }
 
   /* ── Aktionen ─────────────────────────────────────────────── */
@@ -463,23 +510,38 @@ export class Player {
     run.effects.puff({ x: this.x, y: this.y + 0.3, z: this.z }, 0xe5e7eb, 6, 1.5, 0.5);
   }
 
-  private tryAttack(aim: THREE.Vector3, aimEnemy: Enemy | null): void {
+  private tryAttack(target: Enemy, mouseLook: boolean): void {
     if (!this.canAct() && !this.mounted) return;
     if (this.attackCd > 0 || this.dash || this.mountCastT >= 0) return;
-    this.ensureDismounted();
     const run = this.run;
     const atk = this.cls.attack;
-    this.attackCd = atk.interval / this.attackSpeedMul();
-    this.attackAnim = 0.28;
-    this.lastAimTime = performance.now();
-    const tx = aimEnemy ? aimEnemy.x : aim.x;
-    const tz = aimEnemy ? aimEnemy.z : aim.z;
-    let dx = tx - this.x;
-    let dz = tz - this.z;
+    let dx = target.x - this.x;
+    let dz = target.z - this.z;
     const d = Math.hypot(dx, dz) || 1;
+    const reach = atk.kind === 'melee' ? atk.range + target.radius + 0.3 : atk.range + target.radius;
+    if (this.rangeWarnT > 0) this.rangeWarnT -= 0.016;
+    if (d > reach) {
+      if (this.rangeWarnT <= 0 && d < reach + 25) {
+        this.rangeWarnT = 2.5;
+        run.notify('Ziel außer Reichweite', 'info');
+      }
+      return;
+    }
     dx /= d;
     dz /= d;
-    this.facing = Math.atan2(dx, dz);
+    // Bei Maussteuerung muss man das Ziel ansehen (wie in MMORPGs)
+    if (mouseLook && d > 1.2 && dx * Math.sin(this.facing) + dz * Math.cos(this.facing) < 0.2) {
+      if (this.rangeWarnT <= 0) {
+        this.rangeWarnT = 2.5;
+        run.notify('Du musst dein Ziel ansehen', 'info');
+      }
+      return;
+    }
+    this.ensureDismounted();
+    this.attackCd = atk.interval / this.attackSpeedMul();
+    this.attackAnim = 0.28;
+    this.attacksDone++;
+    if (!mouseLook) this.facing = Math.atan2(dx, dz);
     const forceCrit = this.buff('nextCrit');
     if (forceCrit) this.buffs.delete('nextCrit');
     const dmg = run.stats.power * atk.damageMul * this.damageMul();
@@ -508,7 +570,8 @@ export class Player {
       this.rig.weaponTip.getWorldPosition(tip);
       const mage = this.cls.id === 'mage';
       run.audio.play(mage ? 'fire' : 'arrow', mage ? 0.35 : 0.6);
-      run.combat.heroShot(mage ? 'bolt' : 'arrow', mage ? 0xff8a3d : 0xf8fafc, this.x + dx * 0.6, Math.max(this.y + 1, tip.y), this.z + dz * 0.6, dx, dz, atk.projectileSpeed, atk.range, dmg, { source: 'hero', element: atk.element, forceCrit, critMul: forceCrit ? 2 : 1 }, {
+      run.combat.heroShot(mage ? 'bolt' : 'arrow', mage ? 0xff8a3d : 0xf8fafc, this.x + dx * 0.6, Math.max(this.y + 1, tip.y), this.z + dz * 0.6, dx, dz, atk.projectileSpeed, atk.range + 4, dmg, { source: 'hero', element: atk.element, forceCrit, critMul: forceCrit ? 2 : 1 }, {
+        target,
         radius: 0.7,
         trail: mage ? 0xff8a3d : 0,
         onHit: (_x, _z, e) => {
@@ -526,6 +589,11 @@ export class Player {
     const run = this.run;
     if (!this.alive || this.dash || this.status.disabled) return;
     const skill = this.cls.skills[i];
+    if (!this.skillUnlocked(i)) {
+      run.notify(`${skill.name} lernst du ab Kontostufe ${SKILL_UNLOCK_LEVEL[i]}`, 'info');
+      run.audio.play('error', 0.4);
+      return;
+    }
     if (this.skillCd[i] > 0) {
       run.audio.play('error', 0.4);
       return;
@@ -536,7 +604,6 @@ export class Player {
       return;
     }
     this.ensureDismounted();
-    this.lastAimTime = performance.now();
     this.facing = Math.atan2(aim.x - this.x, aim.z - this.z);
     const ok = castSkill(run, this, skill.id, aim, aimEnemy);
     if (!ok) return;
@@ -553,8 +620,20 @@ export class Player {
     this.castAnim = 0.35;
   }
 
+  skillUnlocked(i: number): boolean {
+    return this.run.accountLevel >= SKILL_UNLOCK_LEVEL[i];
+  }
+
+  get racialUnlocked(): boolean {
+    return this.run.accountLevel >= RACIAL_UNLOCK_LEVEL;
+  }
+
   private tryRacial(aim: THREE.Vector3): void {
     const run = this.run;
+    if (!this.racialUnlocked) {
+      run.notify(`${this.race.activeName} lernst du ab Kontostufe ${RACIAL_UNLOCK_LEVEL}`, 'info');
+      return;
+    }
     if (!this.alive || this.racialCd > 0 || this.status.disabled && this.race.id !== 'human') {
       if (this.racialCd > 0) run.audio.play('error', 0.4);
       return;

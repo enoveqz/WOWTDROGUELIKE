@@ -1,5 +1,6 @@
 import { keyLabel, type Action } from '../config/keybinds.ts';
 import { TOWERS, TOWER_ORDER, type TowerId } from '../config/towers.ts';
+import { RACIAL_UNLOCK_LEVEL, SKILL_UNLOCK_LEVEL } from '../config/talents.ts';
 import { activeSynergies, RARITY_INFO, SYNERGIES, tagCounts, UPGRADE_BY_ID, type UpgradeDef, type UpgradeTag } from '../config/upgrades.ts';
 import { THEME_INFO, waveSummary } from '../config/waves.ts';
 import { formatTime } from '../core/math.ts';
@@ -58,6 +59,8 @@ export class Hud {
   private panelPad = -1;
   private panelKey = '';
   private choiceVisible = false;
+  private questVersion = -1;
+  private sellConfirmUntil = 0;
   pauseVisible = false;
 
   constructor(ui: UI, layer: HTMLElement) {
@@ -97,6 +100,7 @@ export class Hud {
         </div>
         <div class="tl-row small muted"><span data-q="time">0:00</span><span>·</span><span data-q="kills">0</span><span>·</span><span data-tip="Seed dieses Runs (reproduzierbare Zufallswerte)">Seed ${seedToCode(run.rng.seed)}</span></div>
       </div>
+      <div class="quest glass is-hidden" data-q="quest"></div>
       <div class="hud-preview glass" data-q="preview"></div>
       <div class="hud-tc">
         <div class="wave-panel glass">
@@ -106,6 +110,10 @@ export class Hud {
         <div class="boss-panel glass is-hidden" data-q="boss">
           <div class="boss-name">${icon('skull', 16)}<b data-q="bossName"></b><span data-q="bossPct"></span></div>
           <div class="bar bar-boss"><i data-q="bossBar"></i></div>
+        </div>
+        <div class="target-frame glass is-hidden" data-q="tframe">
+          <div class="tf-head"><b data-q="tName"></b><span data-q="tRole"></span></div>
+          <div class="bar bar-target"><i data-q="tBar"></i><span data-q="tTxt"></span></div>
         </div>
         <div class="challenge-chip is-hidden" data-q="challenge">${icon('wind', 14)}<span>${esc(run.level.challenge.name)} aktiv</span></div>
       </div>
@@ -125,7 +133,7 @@ export class Hud {
           </div>
         </div>
         <div class="actionbar glass">
-          ${slot('attack', cls.icon, 'LMB', `Standardangriff – ${cls.attack.kind === 'melee' ? 'Nahkampf' : 'Fernkampf'} Richtung Mauszeiger`)}
+          ${slot('attack', cls.icon, 'RMB', `Automatischer Angriff – Rechtsklick auf einen Gegner (${cls.attack.kind === 'melee' ? 'Nahkampf' : 'Fernkampf'}). Klick hier schaltet ihn ein/aus.`)}
           ${cls.skills.map((s, i) => slot(`s${i}`, s.icon, k(`skill${i + 1}` as Action), `${s.name} (${s.cost} ${cls.resource.name}, ${s.cooldown} s): ${s.desc}`)).join('')}
           <span class="ab-sep"></span>
           ${slot('racial', race.activeIcon, k('racial'), `${race.activeName} (${race.cooldown} s): ${race.activeDesc}`, 'slot-racial')}
@@ -143,6 +151,23 @@ export class Hud {
       this.slots[n.dataset.slot!] = { root: n, cd: n.querySelector('.slot-cd')!, txt: n.querySelector('.slot-txt')!, ico: n.querySelector('.slot-ico')!, lastIcon: '' };
     }
     this.slots.build.root.dataset.action = 'toggleBuild';
+    this.slots.attack.root.dataset.action = 'toggleAttack';
+    // Noch nicht erlernte Fähigkeiten sichtbar sperren
+    cls.skills.forEach((sk, i) => {
+      if (!run.player.skillUnlocked(i)) {
+        const sl = this.slots[`s${i}`];
+        sl.root.classList.add('is-locked');
+        sl.ico.innerHTML = icon('lock', 22);
+        sl.root.dataset.tip = esc(`${sk.name} – erlernst du ab Kontostufe ${SKILL_UNLOCK_LEVEL[i]}`);
+      }
+    });
+    if (!run.player.racialUnlocked) {
+      const sl = this.slots.racial;
+      sl.root.classList.add('is-locked');
+      sl.ico.innerHTML = icon('lock', 22);
+      sl.root.dataset.tip = esc(`${race.activeName} – erlernst du ab Kontostufe ${RACIAL_UNLOCK_LEVEL}`);
+    }
+    this.questVersion = -1;
     this.minimap = this.q.minimap as unknown as HTMLCanvasElement;
     this.q.event.innerHTML = `${icon(run.event.icon, 14)}<span>${esc(run.event.name)}</span>`;
     this.q.event.dataset.tip = run.event.desc;
@@ -182,9 +207,24 @@ export class Hud {
       s.root.classList.toggle('is-active', !!extraCls?.active);
     };
     const atkMax = p.cls.attack.interval / p.attackSpeedMul();
-    cdSet('attack', p.attackCd, atkMax);
-    p.cls.skills.forEach((s, i) => cdSet(`s${i}`, p.skillCd[i], p.skillMax[i], { disabled: p.res < s.cost || !p.alive }));
-    cdSet('racial', p.racialCd, p.racialMax, { disabled: !p.alive });
+    cdSet('attack', p.autoAttack ? p.attackCd : 0, atkMax, { active: p.autoAttack && !!run.target });
+    p.cls.skills.forEach((s, i) => {
+      if (p.skillUnlocked(i)) cdSet(`s${i}`, p.skillCd[i], p.skillMax[i], { disabled: p.res < s.cost || !p.alive });
+    });
+    if (p.racialUnlocked) cdSet('racial', p.racialCd, p.racialMax, { disabled: !p.alive });
+    // Zielrahmen
+    const t = run.target;
+    q.tframe.classList.toggle('is-hidden', !t);
+    if (t) {
+      setW(q.tBar, t.hp / t.maxHp);
+      const name = (t.affix ? `${t.affix.name} ` : '') + t.def.name;
+      if (q.tName.textContent !== name) q.tName.textContent = name;
+      const role = t.def.role;
+      if (q.tRole.textContent !== role) q.tRole.textContent = role;
+      const txt = `${fmt(Math.max(0, t.hp))} / ${fmt(t.maxHp)}`;
+      if (q.tTxt.textContent !== txt) q.tTxt.textContent = txt;
+      q.tframe.classList.toggle('is-attacking', p.autoAttack);
+    }
     const dodge = this.slots.dodge;
     const wantIcon = p.mounted ? 'charge' : 'wind';
     if (dodge.lastIcon !== wantIcon) {
@@ -283,10 +323,27 @@ export class Hud {
       if (run.selectedPad < 0 && run.nearPad >= 0) {
         const t = run.towers.towers[run.nearPad];
         prompt = `<kbd>${esc(keyLabel(d.keys.interact))}</kbd> ${t ? `${esc(t.def.name)} verwalten` : 'Turm bauen'}`;
+      } else if (!run.target && run.enemies.aliveCount > 0 && run.player.attacksDone === 0) {
+        prompt = `<b>Rechtsklick</b> auf einen Gegner: angreifen · <kbd>${esc(keyLabel(d.keys.target))}</kbd> Ziel wählen`;
       } else if (run.buildMode) prompt = `${icon('hammer', 14)} Baumodus – Bauplatz anklicken · <kbd>${esc(keyLabel(d.keys.build))}</kbd> beendet`;
     }
     if (q.prompt.innerHTML !== prompt) q.prompt.innerHTML = prompt;
     q.mmWrap.classList.toggle('is-hidden', !d.settings.showMinimap);
+    q.upgrades.classList.toggle('is-hidden', Object.keys(run.taken).length === 0);
+    // Questlog
+    const tut = run.tutorial;
+    const qv = tut && !tut.finished ? tut.version : -2;
+    if (qv !== this.questVersion) {
+      this.questVersion = qv;
+      const step = tut?.current;
+      q.quest.classList.toggle('is-hidden', !step);
+      if (tut && step) {
+        q.quest.innerHTML = `<div class="quest-head">${icon('flag', 14)}<span>Aufgabe ${tut.index + 1}/${tut.steps.length}</span></div><b>${esc(step.title)}</b><p>${step.text}</p>`;
+        q.quest.classList.remove('pop');
+        void q.quest.offsetWidth;
+        q.quest.classList.add('pop');
+      }
+    }
   }
 
   renderUpgrades(run: Run): void {
@@ -422,6 +479,7 @@ export class Hud {
 
   /* ── Turmmenü ────────────────────────────────────────────── */
   openTowerPanel(pad: number): void {
+    if (pad !== this.panelPad) this.sellConfirmUntil = 0;
     this.panelPad = pad;
     this.panelKey = '';
     this.root.classList.add('panel-open');
@@ -439,33 +497,36 @@ export class Hud {
     const run = this.run;
     if (!run || this.panelPad < 0) return;
     const t = run.towers.towers[this.panelPad];
-    const key = `${this.panelPad}|${t?.def.id ?? '-'}|${t?.level ?? 0}|${run.gold >= 0 ? Math.floor(run.gold / 5) : 0}`;
+    const key = `${this.panelPad}|${t?.def.id ?? '-'}|${t?.level ?? 0}|${Math.floor(run.gold / 5)}|${run.waves.index}|${performance.now() < this.sellConfirmUntil}`;
     if (!force && key === this.panelKey) return;
     this.panelKey = key;
     const statLine = (lv: (typeof TOWERS)['arrow']['levels'][number]) =>
       `${fmt(lv.damage)} Schaden · ${lv.rate.toFixed(1).replace('.', ',')}/s · ${lv.range} m${lv.splash ? ` · Fläche ${lv.splash} m` : ''}${lv.slow ? ` · −${Math.round(lv.slow * 100)} % Tempo` : ''}${lv.multishot ? ` · ${lv.multishot} Ziele` : ''}${lv.freezeChance ? ` · ${Math.round(lv.freezeChance * 100)} % Gefrieren` : ''}${lv.burn ? ' · Brand' : ''}`;
     let body = '';
     if (!t) {
-      body = `<h3>${icon('hammer', 18)} Bauplatz ${this.panelPad + 1}</h3><p class="muted small">Wähle eine Verteidigung (Tasten 1–3).</p>
-        ${TOWER_ORDER.map((id: TowerId, i) => {
+      body = `<h3>${icon('hammer', 18)} Bauplatz ${this.panelPad + 1}</h3><p class="muted small">Wähle eine Verteidigung. Kämpfen kannst du dabei weiter.</p>
+        ${TOWER_ORDER.map((id: TowerId) => {
           const def = TOWERS[id];
           const cost = run.towers.cost(id);
-          const ok = run.gold >= cost;
-          return `<button class="tower-opt ${ok ? '' : 'is-disabled'}" data-action="buildTower" data-id="${id}" style="--accent:${def.color}">
-            <span class="to-ico">${icon(def.icon, 22)}</span>
-            <span class="to-txt"><b>${esc(def.name)}</b><small>${esc(def.desc)}</small><em>${statLine(def.levels[0])}</em></span>
-            <span class="to-cost">${icon('coin', 14)}${cost}<kbd>${i + 1}</kbd></span>
+          const available = run.towerAvailable(id);
+          const ok = run.gold >= cost && available;
+          const lockTxt = available ? '' : `<em class="to-lock">${icon('lock', 12)} ab Welle ${run.towerUnlockWave(id) + 1}</em>`;
+          return `<button class="tower-opt ${ok ? '' : 'is-disabled'} ${available ? '' : 'is-locked'}" data-action="buildTower" data-id="${id}" style="--accent:${def.color}">
+            <span class="to-ico">${icon(available ? def.icon : 'lock', 22)}</span>
+            <span class="to-txt"><b>${esc(def.name)}</b><small>${esc(def.desc)}</small>${available ? `<em>${statLine(def.levels[0])}</em>` : lockTxt}</span>
+            <span class="to-cost">${icon('coin', 14)}${cost}</span>
           </button>`;
         }).join('')}`;
     } else {
       const up = run.towers.upgradeCost(t);
+      const confirming = performance.now() < this.sellConfirmUntil;
       const next = t.level < 3 ? t.def.levels[t.level] : null;
       body = `<h3 style="color:${t.def.color}">${icon(t.def.icon, 18)} ${esc(t.def.name)} <span class="lvl">Stufe ${t.level}/3</span></h3>
         <p class="small">${statLine(t.stats)}</p>
         ${next ? `<div class="next-lvl"><small class="muted">Nächste Stufe</small><p class="small">${statLine(next)}</p></div>` : '<p class="muted small">Maximale Stufe erreicht.</p>'}
         <div class="tp-actions">
-          ${up !== null ? `<button class="btn btn-sm btn-primary ${run.gold >= up ? '' : 'is-disabled'}" data-action="upgradeTower">${icon('arrowUp', 14)}<span>Aufwerten</span><b>${icon('coin', 12)}${up}</b><kbd>1</kbd></button>` : ''}
-          <button class="btn btn-sm btn-danger" data-action="sellTower">${icon('coin', 14)}<span>Verkaufen +${run.towers.sellValue(t)}</span><kbd>2</kbd></button>
+          ${up !== null ? `<button class="btn btn-sm btn-primary ${run.gold >= up ? '' : 'is-disabled'}" data-action="upgradeTower">${icon('arrowUp', 14)}<span>Aufwerten</span><b>${icon('coin', 12)}${up}</b></button>` : ''}
+          <button class="btn btn-sm btn-danger ${confirming ? 'is-confirm' : ''}" data-action="sellTower">${icon('coin', 14)}<span>${confirming ? `Wirklich verkaufen? (+${run.towers.sellValue(t)})` : `Verkaufen +${run.towers.sellValue(t)}`}</span></button>
         </div>`;
     }
     this.towerPanel.innerHTML = `<button class="tp-close" data-action="closePanel" data-tip="Schließen (Esc)">${icon('x', 16)}</button>${body}`;
@@ -581,16 +642,34 @@ export class Hud {
       case 'toggleBuild':
         run?.toggleBuildMode();
         break;
-      case 'buildTower':
-        if (run && run.towers.build(this.panelPad, t.dataset.id as TowerId)) this.refreshTowerPanel(true);
+      case 'buildTower': {
+        const id = t.dataset.id as TowerId;
+        if (run && !run.towerAvailable(id)) {
+          run.notify(`${TOWERS[id].name} wird ab Welle ${run.towerUnlockWave(id) + 1} verfügbar`, 'info');
+          break;
+        }
+        if (run && run.towers.build(this.panelPad, id)) this.refreshTowerPanel(true);
         break;
+      }
       case 'upgradeTower':
         if (run && run.towers.upgrade(this.panelPad)) this.refreshTowerPanel(true);
         break;
       case 'sellTower':
-        if (run) {
+        if (!run) break;
+        // Zweistufig: erst bestätigen, dann verkaufen – nie aus Versehen
+        if (performance.now() < this.sellConfirmUntil) {
+          this.sellConfirmUntil = 0;
           run.towers.sell(this.panelPad);
-          this.refreshTowerPanel(true);
+        } else {
+          this.sellConfirmUntil = performance.now() + 3000;
+          app.audio.play('click');
+        }
+        this.refreshTowerPanel(true);
+        break;
+      case 'toggleAttack':
+        if (run) {
+          if (!run.target) run.setTarget(run.player.softTarget(), true);
+          else run.player.autoAttack = !run.player.autoAttack;
         }
         break;
       case 'closePanel':

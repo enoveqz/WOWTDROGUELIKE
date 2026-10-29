@@ -89,6 +89,11 @@ export function talentFlagRank(ranks: Record<string, number>, flag: TalentFlag):
   return r;
 }
 
+// ── Fortschritt: Fähigkeiten werden nach und nach erlernt (MMORPG-typisch) ──
+/** Kontostufe, ab der Fähigkeit 1–4 verfügbar ist. */
+export const SKILL_UNLOCK_LEVEL = [1, 1, 2, 3] as const;
+export const RACIAL_UNLOCK_LEVEL = 2;
+
 // ── Kontostufe → Talentpunkte ─────────────────────────────────
 export const accountXpForLevel = (level: number): number => 140 + (level - 1) * 70;
 

@@ -93,6 +93,7 @@ export class TowerManager {
   build(padIndex: number, id: TowerId): boolean {
     const run = this.run;
     if (this.towers[padIndex]) return false;
+    if (!run.towerAvailable(id)) return false;
     const cost = this.cost(id);
     if (run.gold < cost) {
       run.notify('Nicht genug Gold', 'info');

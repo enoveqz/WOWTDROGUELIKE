@@ -76,21 +76,38 @@ vom Repository-Namen (auch bei Groß-/Kleinschreibung) und ebenso auf jedem ande
 
 ---
 
-## Steuerung
+## Steuerung (MMORPG-Stil)
 
-| Taste                  | Aktion |
-| ---------------------- | ------ |
-| `W` `A` `S` `D`        | Bewegen (relativ zur Kamera) |
-| Linke Maustaste        | Standardangriff Richtung Mauszeiger (halten) · im Baumodus: Bauplatz wählen |
-| `1` – `4`              | Klassenfähigkeiten (im Turmmenü: Turm wählen/aufwerten/verkaufen) |
-| `R`                    | Rassenfähigkeit |
-| `Leertaste`            | Ausweichrolle · im Sattel: Reittier-Ansturm |
-| `E`                    | Am Bauplatz: Turmmenü · sonst Auf-/Absitzen |
-| `B`                    | Baumodus |
-| `N`                    | Nächste Welle früher rufen (Bonusgold) |
-| Rechte Maustaste ziehen | Kamera drehen |
-| Mausrad                | Zoom |
-| `Esc`                  | Menü schließen → Baumodus beenden → Pause |
+| Eingabe                     | Aktion |
+| --------------------------- | ------ |
+| `W` / `S`                   | Vorwärts / rückwärts laufen |
+| `A` / `D`                   | Drehen – mit gehaltener rechter Maustaste: seitwärts laufen |
+| Linke Maustaste ziehen      | Kamera drehen und neigen (Figur bleibt stehen) |
+| Rechte Maustaste ziehen     | Kamera drehen, die Figur dreht sich mit |
+| Beide Maustasten            | Vorwärts laufen |
+| Linksklick                  | Ziel wählen · Bauplatz öffnen |
+| Rechtsklick                 | Gegner automatisch angreifen · Bauplatz öffnen |
+| `Tab`                       | Nächstes Ziel |
+| `1` – `4`                   | Klassenfähigkeiten (auf das Ziel bzw. den Gegner vor dir) |
+| `R`                         | Rassenfähigkeit |
+| `Leertaste`                 | Ausweichrolle · im Sattel: Reittier-Ansturm |
+| `E`                         | Am Bauplatz: Turmmenü · sonst Auf-/Absitzen |
+| `B`                         | Baumodus (alle Bauplätze & Reichweiten) |
+| `N`                         | Nächste Welle früher rufen (Bonusgold) |
+| Mausrad                     | Zoom |
+| `Esc`                       | Menü schließen → Baumodus beenden → Ziel abwählen → Pause |
+
+Das Turmmenü ist nicht modal: Kampftasten funktionieren weiter, Verkaufen braucht eine Bestätigung,
+und ein per `E` geöffnetes Menü schließt sich, sobald man sich entfernt.
+
+### Sanfter Einstieg
+
+- Neue Konten starten mit Mensch + Krieger + Sturmross. Weitere Rassen, Klassen und Reittiere werden mit
+  der Kontostufe frei (Stufe 2: Waldelfen, Waldläufer; Stufe 3: Orks, Magier; Stufe 4: Zwerge/Schurke kaufbar).
+- Fähigkeiten werden wie in MMORPGs nach und nach erlernt: 1 und 2 sofort, 3 und Rassenfähigkeit ab Stufe 2, 4 ab Stufe 3.
+- Im Flüsterwald: 45 s Vorbereitung, sehr kleine erste Wellen, Frostobelisk ab Welle 3, Arkanturm ab Welle 5,
+  erstes Upgrade nach Welle 2. Der erste Run hat kein Zufallsereignis.
+- Ein Questlog führt Schritt für Schritt durch Laufen, Bauen, Angreifen, Fähigkeiten und Reiten.
 
 Alle Tasten sind unter **Einstellungen → Tastenbelegung** frei belegbar (Belegung über `KeyboardEvent.code`,
 funktioniert also auch mit QWERTZ). Klicks auf UI-Elemente lösen keine Kampfaktionen aus.

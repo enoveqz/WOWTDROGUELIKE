@@ -197,7 +197,7 @@ export class Combat {
   }
 
   /* ── Projektile ─────────────────────────────────────────── */
-  heroShot(kind: ProjectileKind, color: number, x: number, y: number, z: number, dirX: number, dirZ: number, speed: number, range: number, damage: number, opts: HitOpts, extra: Partial<Pick<Projectile, 'pierce' | 'splash' | 'onHit' | 'radius' | 'trail'>> = {}): void {
+  heroShot(kind: ProjectileKind, color: number, x: number, y: number, z: number, dirX: number, dirZ: number, speed: number, range: number, damage: number, opts: HitOpts, extra: Partial<Pick<Projectile, 'pierce' | 'splash' | 'onHit' | 'radius' | 'trail' | 'target'>> = {}): void {
     const len = Math.hypot(dirX, dirZ) || 1;
     this.push({
       kind,
@@ -209,10 +209,10 @@ export class Combat {
       dx: dirX / len,
       dz: dirZ / len,
       speed,
-      target: null,
-      targetKind: 'none',
-      tx: 0,
-      tz: 0,
+      target: extra.target ?? null,
+      targetKind: extra.target ? 'enemy' : 'none',
+      tx: extra.target?.x ?? 0,
+      tz: extra.target?.z ?? 0,
       damage,
       range,
       pierce: extra.pierce ?? 1,
@@ -221,7 +221,7 @@ export class Combat {
       radius: extra.radius ?? 0.6,
       trail: extra.trail ?? color,
       opts,
-      homing: false,
+      homing: !!extra.target,
       arc: 0,
     });
   }

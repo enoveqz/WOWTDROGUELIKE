@@ -40,6 +40,7 @@ export interface SaveData {
   keys: Record<Action, string>;
   stats: { runs: number; victories: number; kills: number; bossKills: number };
   seenTutorial: boolean;
+  tutorialDone: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -62,7 +63,7 @@ export function defaultSave(): SaveData {
     shards: 0,
     totalShards: 0,
     accountXp: 0,
-    unlocked: { races: ['human', 'elf', 'orc'], classes: ['warrior', 'mage', 'ranger'], mounts: ['horse'] },
+    unlocked: { races: ['human'], classes: ['warrior'], mounts: ['horse'] },
     levels: {},
     talents: {},
     boons: {},
@@ -72,6 +73,7 @@ export function defaultSave(): SaveData {
     keys: { ...DEFAULT_KEYS },
     stats: { runs: 0, victories: 0, kills: 0, bossKills: 0 },
     seenTutorial: false,
+    tutorialDone: false,
   };
 }
 

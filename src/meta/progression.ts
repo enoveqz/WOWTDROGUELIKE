@@ -2,7 +2,7 @@ import { CLASSES, type ClassId } from '../config/classes.ts';
 import { LEVEL_BY_ID, type LevelDef } from '../config/levels.ts';
 import { MOUNTS, mountLevelFromXp, type MountId } from '../config/mounts.ts';
 import { RACES, type RaceId } from '../config/races.ts';
-import { accountLevelFromXp, canRankUp, META_BOONS, TALENTS } from '../config/talents.ts';
+import { accountLevelFromXp, canRankUp, META_BOONS, RACIAL_UNLOCK_LEVEL, SKILL_UNLOCK_LEVEL, TALENTS } from '../config/talents.ts';
 import type { SaveData } from './save.ts';
 
 export function talentPoints(save: SaveData): { total: number; spent: number; free: number } {
@@ -37,6 +37,30 @@ export function unlockCost(kind: UnlockKind, id: string): number {
   return MOUNTS[id as MountId].unlockCost;
 }
 
+export function unlockLevel(kind: UnlockKind, id: string): number {
+  if (kind === 'race') return RACES[id as RaceId].unlockLevel;
+  if (kind === 'class') return CLASSES[id as ClassId].unlockLevel;
+  return MOUNTS[id as MountId].unlockLevel;
+}
+
+/** Noch nicht durch die Kontostufe verfügbar? */
+export function levelLocked(save: SaveData, kind: UnlockKind, id: string): boolean {
+  return accountLevelFromXp(save.accountXp).level < unlockLevel(kind, id);
+}
+
+/**
+ * Schaltet kostenlose Inhalte frei, sobald die Kontostufe erreicht ist.
+ * Liefert die Namen der neu freigeschalteten Inhalte.
+ */
+export function syncLevelUnlocks(save: SaveData): string[] {
+  const out: string[] = [];
+  const lvl = accountLevelFromXp(save.accountXp).level;
+  for (const r of Object.values(RACES)) if (!r.unlockCost && r.unlockLevel <= lvl && !save.unlocked.races.includes(r.id)) (save.unlocked.races.push(r.id), out.push(`Rasse: ${r.name}`));
+  for (const c of Object.values(CLASSES)) if (!c.unlockCost && c.unlockLevel <= lvl && !save.unlocked.classes.includes(c.id)) (save.unlocked.classes.push(c.id), out.push(`Klasse: ${c.name}`));
+  for (const m of Object.values(MOUNTS)) if (!m.unlockCost && m.unlockLevel <= lvl && !save.unlocked.mounts.includes(m.id)) (save.unlocked.mounts.push(m.id), out.push(`Reittier: ${m.name}`));
+  return out;
+}
+
 export function isUnlocked(save: SaveData, kind: UnlockKind, id: string): boolean {
   if (kind === 'race') return save.unlocked.races.includes(id as RaceId);
   if (kind === 'class') return save.unlocked.classes.includes(id as ClassId);
@@ -45,6 +69,7 @@ export function isUnlocked(save: SaveData, kind: UnlockKind, id: string): boolea
 
 export function buyUnlock(save: SaveData, kind: UnlockKind, id: string): boolean {
   if (isUnlocked(save, kind, id)) return true;
+  if (levelLocked(save, kind, id)) return false;
   const cost = unlockCost(kind, id);
   if (save.shards < cost) return false;
   save.shards -= cost;
@@ -89,6 +114,8 @@ export interface RewardSummary {
   mountLevelAfter: number;
   firstClear: boolean;
   unlockedLevel?: string;
+  newUnlocks: string[];
+  newSkills: string[];
 }
 
 export function computeRewards(save: SaveData, r: RunResult): RewardSummary {
@@ -138,6 +165,8 @@ export function computeRewards(save: SaveData, r: RunResult): RewardSummary {
     mountLevelAfter: mAfter,
     firstClear,
     unlockedLevel,
+    newUnlocks: [],
+    newSkills: [],
   };
 }
 
@@ -158,5 +187,11 @@ export function applyRewards(save: SaveData, r: RunResult): RewardSummary {
   save.stats.kills += r.kills;
   if (r.victory) save.stats.victories++;
   if (r.bossKilled) save.stats.bossKills++;
+  summary.newUnlocks = syncLevelUnlocks(save);
+  for (let i = 0; i < SKILL_UNLOCK_LEVEL.length; i++) {
+    const lv = SKILL_UNLOCK_LEVEL[i];
+    if (lv > summary.accountLevelBefore && lv <= summary.accountLevelAfter) summary.newSkills.push(`Fähigkeit ${i + 1}`);
+  }
+  if (RACIAL_UNLOCK_LEVEL > summary.accountLevelBefore && RACIAL_UNLOCK_LEVEL <= summary.accountLevelAfter) summary.newSkills.push('Rassenfähigkeit');
   return summary;
 }

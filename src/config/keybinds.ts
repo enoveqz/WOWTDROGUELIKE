@@ -9,6 +9,7 @@ export type Action =
   | 'skill4'
   | 'racial'
   | 'interact'
+  | 'target'
   | 'dodge'
   | 'build'
   | 'nextWave'
@@ -26,6 +27,7 @@ export const DEFAULT_KEYS: Record<Action, string> = {
   skill4: 'Digit4',
   racial: 'KeyR',
   interact: 'KeyE',
+  target: 'Tab',
   dodge: 'Space',
   build: 'KeyB',
   nextWave: 'KeyN',
@@ -35,21 +37,22 @@ export const DEFAULT_KEYS: Record<Action, string> = {
 export const ACTION_LABELS: Record<Action, string> = {
   up: 'Vorwärts',
   down: 'Rückwärts',
-  left: 'Links',
-  right: 'Rechts',
+  left: 'Links drehen (mit RMB: seitwärts)',
+  right: 'Rechts drehen (mit RMB: seitwärts)',
   skill1: 'Fähigkeit 1',
   skill2: 'Fähigkeit 2',
   skill3: 'Fähigkeit 3',
   skill4: 'Fähigkeit 4 (Signatur)',
   racial: 'Rassenfähigkeit',
   interact: 'Interagieren / Auf- & Absitzen',
+  target: 'Nächstes Ziel wählen',
   dodge: 'Ausweichen / Reittier-Ansturm',
   build: 'Baumodus',
   nextWave: 'Nächste Welle rufen',
   pause: 'Pause',
 };
 
-export const ACTION_ORDER: Action[] = ['up', 'down', 'left', 'right', 'skill1', 'skill2', 'skill3', 'skill4', 'racial', 'interact', 'dodge', 'build', 'nextWave', 'pause'];
+export const ACTION_ORDER: Action[] = ['up', 'down', 'left', 'right', 'skill1', 'skill2', 'skill3', 'skill4', 'racial', 'interact', 'target', 'dodge', 'build', 'nextWave', 'pause'];
 
 export function keyLabel(code: string): string {
   if (code.startsWith('Key')) return code.slice(3);
