@@ -1,0 +1,25 @@
+{
+  "name": "kingshot-riders-of-aether",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Low-Poly Fantasy Action-Roguelite mit Tower-Defense-Mechaniken (Three.js + TypeScript + Vite)",
+  "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --no-warnings tests/run-tests.ts"
+  },
+  "dependencies": {
+    "three": "^0.186.0"
+  },
+  "devDependencies": {
+    "@types/three": ">=0.181.0 <0.190.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.3.5"
+  }
+}
