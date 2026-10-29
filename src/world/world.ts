@@ -7,6 +7,7 @@ import type { Quality } from '../meta/save.ts';
 import { geo, mat } from './assets.ts';
 import { createCrystal, createPad, createPortal, type CrystalRig, type PadRig } from './models.ts';
 import { smoothstep, ValueNoise } from './noise.ts';
+import { getTexture, type TexKey } from './textures.ts';
 
 export interface Collider {
   x: number;
@@ -199,47 +200,67 @@ export class World {
   }
 
   private buildTerrain(): void {
+    // Weich schattiertes Gelände; Detail kommt aus handgemalten Texturen,
+    // die per Shader zwischen Boden, Weg und Fels überblendet werden.
     const seg = 150;
-    let g: THREE.BufferGeometry = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, seg, seg);
+    const g = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, seg, seg);
     g.rotateX(-Math.PI / 2);
     const pos = g.attributes.position as THREE.BufferAttribute;
+    const colors = new Float32Array(pos.count * 3);
+    const mix = new Float32Array(pos.count * 3);
+    const tint = new THREE.Color();
+    const warm = new THREE.Color(this.biome.groundHigh);
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
       const z = pos.getZ(i);
-      const jitter = (this.noise.noise(x * 1.7, z * 1.7) - 0.5) * 0.18;
-      pos.setY(i, this.heightAt(x, z) + jitter);
-    }
-    g = g.toNonIndexed();
-    const p2 = g.attributes.position as THREE.BufferAttribute;
-    const colors = new Float32Array(p2.count * 3);
-    const low = new THREE.Color(this.biome.groundLow);
-    const high = new THREE.Color(this.biome.groundHigh);
-    const path = new THREE.Color(this.biome.pathColor);
-    const edge = new THREE.Color(this.biome.pathEdge);
-    const cliff = new THREE.Color(this.biome.cliff);
-    const c = new THREE.Color();
-    for (let i = 0; i < p2.count; i += 3) {
-      const x = (p2.getX(i) + p2.getX(i + 1) + p2.getX(i + 2)) / 3;
-      const z = (p2.getZ(i) + p2.getZ(i + 1) + p2.getZ(i + 2)) / 3;
-      const y = (p2.getY(i) + p2.getY(i + 1) + p2.getY(i + 2)) / 3;
-      const n = this.noise.noise(x * 0.35, z * 0.35);
-      c.copy(low).lerp(high, clamp(n * 0.9 + y * 0.05, 0, 1));
+      const y = this.heightAt(x, z);
+      pos.setY(i, y);
       const d = this.minPathDist(x, z);
-      if (d < 2.4) c.copy(path).lerp(edge, n * 0.35);
-      else if (d < 3.1) c.lerp(edge, 0.6);
-      if (y > 2.2) c.lerp(cliff, clamp((y - 2.2) / 4, 0, 0.85));
-      for (const pool of this.pools) {
-        if (Math.hypot(x - pool.x, z - pool.z) < pool.r + 0.8) c.lerp(edge, 0.5);
-      }
-      for (let k = 0; k < 3; k++) {
-        colors[(i + k) * 3] = c.r;
-        colors[(i + k) * 3 + 1] = c.g;
-        colors[(i + k) * 3 + 2] = c.b;
-      }
+      let wPath = 1 - smoothstep(1.9, 3.1, d);
+      for (const pool of this.pools) wPath = Math.max(wPath, 1 - smoothstep(pool.r * 0.9, pool.r + 1.4, Math.hypot(x - pool.x, z - pool.z)));
+      const wRock = smoothstep(1.6, 4.5, y) * (1 - wPath);
+      const wGround = Math.max(0, 1 - wPath - wRock);
+      mix[i * 3] = wGround;
+      mix[i * 3 + 1] = wPath;
+      mix[i * 3 + 2] = wRock;
+      // Großflächige Helligkeitsvariation + dunklere Wegränder (gemalte Okklusion)
+      const n = this.noise.fbm(x * 0.06 + 11, z * 0.06, 3);
+      const edgeShade = 1 - 0.18 * (1 - smoothstep(2.4, 4.2, d)) * smoothstep(1.6, 2.6, d);
+      const b = (0.86 + n * 0.3) * edgeShade;
+      tint.setRGB(b, b, b).lerp(warm, 0.08 * n);
+      colors[i * 3] = tint.r;
+      colors[i * 3 + 1] = tint.g;
+      colors[i * 3 + 2] = tint.b;
     }
     g.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+    g.setAttribute('aMix', new THREE.BufferAttribute(mix, 3));
     g.computeVertexNormals();
-    const m = new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.95, metalness: 0 });
+    const id = this.biome.id;
+    const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+    const uniforms = {
+      tGround: { value: getTexture(`${id}_ground`) },
+      tPath: { value: getTexture(`${id}_path`) },
+      tRock: { value: getTexture(`${id}_rock`) },
+      uScale: { value: 0.085 },
+    };
+    m.onBeforeCompile = (shader) => {
+      Object.assign(shader.uniforms, uniforms);
+      shader.vertexShader = shader.vertexShader
+        .replace('#include <common>', '#include <common>\nattribute vec3 aMix;\nvarying vec3 vMix;\nvarying vec2 vWXZ;')
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\nvMix = aMix;\nvWXZ = (modelMatrix * vec4(transformed, 1.0)).xz;');
+      shader.fragmentShader = shader.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform sampler2D tGround;\nuniform sampler2D tPath;\nuniform sampler2D tRock;\nuniform float uScale;\nvarying vec3 vMix;\nvarying vec2 vWXZ;')
+        .replace(
+          '#include <map_fragment>',
+          `vec2 tuv = vWXZ * uScale;
+          vec3 mw = vMix / max(vMix.x + vMix.y + vMix.z, 0.001);
+          vec4 tg = texture2D(tGround, tuv);
+          vec4 tp = texture2D(tPath, tuv * 1.2 + 0.37);
+          vec4 tr = texture2D(tRock, tuv * 0.8 + 0.71);
+          diffuseColor *= tg * mw.x + tp * mw.y + tr * mw.z;`,
+        );
+    };
+    m.customProgramCacheKey = () => 'terrain-splat';
     const mesh = new THREE.Mesh(g, m);
     mesh.receiveShadow = true;
     mesh.name = 'terrain';
@@ -266,10 +287,10 @@ export class World {
   }
 
   private buildLights(quality: Quality): void {
-    this.hemi = new THREE.HemisphereLight(this.biome.hemiSky, this.biome.hemiGround, 1.15);
+    this.hemi = new THREE.HemisphereLight(this.biome.hemiSky, this.biome.hemiGround, 1.35);
     this.group.add(this.hemi);
     this.sun = new THREE.DirectionalLight(this.biome.sun, this.biome.sunIntensity);
-    this.sun.position.set(-30, 55, 25);
+    this.sun.position.set(-38, 42, 30); // tiefere, warme Sonne – längere, malerische Schatten
     this.sun.target.position.set(0, 0, 0);
     this.sun.castShadow = quality !== 'low';
     const size = quality === 'high' ? 4096 : 2048;
@@ -279,13 +300,13 @@ export class World {
     this.sun.shadow.bias = -0.0005;
     this.sun.shadow.normalBias = 0.04;
     this.group.add(this.sun, this.sun.target);
-    const amb = new THREE.AmbientLight(0xffffff, 0.25);
+    const amb = new THREE.AmbientLight(0xfff3e0, 0.2);
     this.group.add(amb);
   }
 
   private buildPaths(): void {
     // Leuchtende Wegsteine markieren die Gegnerrouten in regelmäßigen Abständen.
-    const m = mat(0x334155, { emissive: this.biome.id === 'volcano' ? 0xff6a00 : 0x7c3aed, emissiveIntensity: 0.9 });
+    const m = mat(0x8a8178, { emissive: this.biome.id === 'volcano' ? 0xff6a00 : 0x2dd4bf, emissiveIntensity: 0.35 });
     for (const path of this.level.paths) {
       for (let i = 0; i < path.length - 1; i++) {
         const a = path[i];
@@ -358,7 +379,9 @@ export class World {
         const [px, pz] = rng.chance(0.5) ? [x, z] : [z, x];
         if (!this.decorAllowed(px, pz, spec)) continue;
         if (occupied.some((o) => Math.hypot(o.x - px, o.z - pz) < o.r + 0.9)) continue;
-        const s = rng.range(spec.scale[0], spec.scale[1]);
+        // Im Spielfeld kleiner, am Rand mächtig – hält die Sicht auf das Geschehen frei
+        const inside = Math.abs(px) < 34 && Math.abs(pz) < 34;
+        const s = rng.range(spec.scale[0], spec.scale[1]) * (inside && spec.solid ? 0.68 : 1);
         placements.push({ x: px, z: pz, s, rot: rng.range(0, Math.PI * 2), color: rng.pick(spec.colors) });
         const r = colliderRadius(spec.type) * s;
         occupied.push({ x: px, z: pz, r });
@@ -385,7 +408,11 @@ export class World {
     if (places.length === 0) return;
     const parts = decorParts(spec.type);
     for (const p of parts) {
-      const im = new THREE.InstancedMesh(p.geo, new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.9, emissive: p.emissive ?? 0, emissiveIntensity: p.emissive ? 1.6 : 1 }), places.length);
+      const im = new THREE.InstancedMesh(
+        p.geo,
+        new THREE.MeshStandardMaterial({ flatShading: !!p.flat, roughness: 0.9, map: p.tex ? getTexture(p.tex) : null, emissive: p.emissive ?? 0, emissiveIntensity: p.emissive ? 1.6 : 1 }),
+        places.length,
+      );
       im.castShadow = quality !== 'low' && p.shadow !== false;
       im.receiveShadow = false;
       const col = new THREE.Color();
@@ -399,6 +426,8 @@ export class World {
         im.setMatrixAt(i, dummy.matrix);
         col.setHex(p.color ?? pl.color);
         if (!p.color) col.offsetHSL(0, 0, ((i * 7919) % 13) / 130 - 0.05);
+        // Texturen tragen die Farbe – Instanzfarbe nur noch als Tönung
+        if (p.tex) col.lerp(WHITE, p.color ? 0.75 : 0.5);
         im.setColorAt(i, col);
       });
       im.instanceMatrix.needsUpdate = true;
@@ -594,8 +623,12 @@ function colliderRadius(type: DecorSpec['type']): number {
   }
 }
 
+const WHITE = new THREE.Color(0xffffff);
+
 interface DecorPart {
   geo: THREE.BufferGeometry;
+  tex?: TexKey;
+  flat?: boolean;
   offset: [number, number, number];
   color?: number;
   emissive?: number;
@@ -608,31 +641,36 @@ function decorParts(type: DecorSpec['type']): DecorPart[] {
   switch (type) {
     case 'tree':
       return [
-        { geo: new THREE.CylinderGeometry(0.18, 0.28, 1.6, 5), offset: [0, 0.8, 0], color: 0x6b4423 },
-        { geo: new THREE.IcosahedronGeometry(1.25, 0), offset: [0, 2.3, 0] },
-        { geo: new THREE.IcosahedronGeometry(0.85, 0), offset: [0.35, 3.1, 0.15] },
+        { geo: new THREE.CylinderGeometry(0.22, 0.42, 1.8, 8), offset: [0, 0.9, 0], color: 0x8b4a2b, tex: 'bark' },
+        { geo: new THREE.IcosahedronGeometry(1.35, 1), offset: [0, 2.5, 0], tex: 'leaves', scale: [1, 0.85, 1] },
+        { geo: new THREE.IcosahedronGeometry(0.95, 1), offset: [0.45, 3.3, 0.2], tex: 'leaves' },
+        { geo: new THREE.IcosahedronGeometry(0.8, 1), offset: [-0.55, 2.9, -0.3], tex: 'leaves' },
       ];
     case 'pine':
+      // Mächtige, rotstämmige Nadelbäume wie in alten Fantasy-Wäldern
       return [
-        { geo: new THREE.CylinderGeometry(0.15, 0.22, 1.2, 5), offset: [0, 0.6, 0], color: 0x5b3a22 },
-        { geo: new THREE.ConeGeometry(1.25, 2.2, 6), offset: [0, 2.0, 0] },
-        { geo: new THREE.ConeGeometry(0.9, 1.8, 6), offset: [0, 3.2, 0] },
+        { geo: new THREE.CylinderGeometry(0.18, 0.62, 3.6, 8), offset: [0, 1.8, 0], color: 0x9a4f2c, tex: 'bark' },
+        { geo: new THREE.ConeGeometry(1.7, 2.4, 9), offset: [0, 3.1, 0], tex: 'pine' },
+        { geo: new THREE.ConeGeometry(1.35, 2.2, 9), offset: [0, 4.3, 0], tex: 'pine' },
+        { geo: new THREE.ConeGeometry(0.95, 2.0, 9), offset: [0, 5.4, 0], tex: 'pine' },
+        { geo: new THREE.ConeGeometry(0.5, 1.4, 8), offset: [0, 6.4, 0], tex: 'pine' },
       ];
     case 'snowpine':
       return [
-        { geo: new THREE.CylinderGeometry(0.15, 0.22, 1.2, 5), offset: [0, 0.6, 0], color: 0x5b3a22 },
-        { geo: new THREE.ConeGeometry(1.3, 2.3, 6), offset: [0, 2.0, 0] },
-        { geo: new THREE.ConeGeometry(0.95, 0.6, 6), offset: [0, 2.6, 0], color: 0xf8fafc },
-        { geo: new THREE.ConeGeometry(0.9, 1.8, 6), offset: [0, 3.3, 0] },
-        { geo: new THREE.ConeGeometry(0.5, 0.6, 6), offset: [0, 3.95, 0], color: 0xf8fafc },
+        { geo: new THREE.CylinderGeometry(0.16, 0.5, 2.6, 8), offset: [0, 1.3, 0], color: 0x8b4a2b, tex: 'bark' },
+        { geo: new THREE.ConeGeometry(1.5, 2.3, 9), offset: [0, 2.6, 0], tex: 'pine' },
+        { geo: new THREE.ConeGeometry(1.25, 0.7, 9), offset: [0, 3.2, 0], color: 0xf4f8ff },
+        { geo: new THREE.ConeGeometry(1.1, 2.0, 9), offset: [0, 3.8, 0], tex: 'pine' },
+        { geo: new THREE.ConeGeometry(0.85, 0.6, 9), offset: [0, 4.35, 0], color: 0xf4f8ff },
+        { geo: new THREE.ConeGeometry(0.6, 1.4, 8), offset: [0, 4.9, 0], color: 0xf4f8ff },
       ];
     case 'bush':
-      return [{ geo: new THREE.IcosahedronGeometry(0.7, 0), offset: [0, 0.45, 0], scale: [1.2, 0.8, 1.1] }];
+      return [{ geo: new THREE.IcosahedronGeometry(0.7, 1), offset: [0, 0.45, 0], scale: [1.2, 0.8, 1.1], tex: 'leaves' }];
     case 'rock':
-      return [{ geo: new THREE.DodecahedronGeometry(0.9, 0), offset: [0, 0.35, 0], scale: [1.2, 0.8, 1] }];
+      return [{ geo: new THREE.DodecahedronGeometry(0.9, 1), offset: [0, 0.35, 0], scale: [1.2, 0.8, 1], tex: 'stone' }];
     case 'lavarock':
       return [
-        { geo: new THREE.DodecahedronGeometry(0.95, 0), offset: [0, 0.4, 0], scale: [1.1, 0.95, 1] },
+        { geo: new THREE.DodecahedronGeometry(0.95, 1), offset: [0, 0.4, 0], scale: [1.1, 0.95, 1], tex: 'volcano_rock' },
         { geo: new THREE.BoxGeometry(0.12, 0.8, 0.12), offset: [0.4, 0.5, 0.65], color: 0xff6a1a, emissive: 0xff4500, shadow: false },
       ];
     case 'cactus':
@@ -644,7 +682,7 @@ function decorParts(type: DecorSpec['type']): DecorPart[] {
       ];
     case 'deadtree':
       return [
-        { geo: new THREE.CylinderGeometry(0.12, 0.25, 2.4, 5), offset: [0, 1.2, 0] },
+        { geo: new THREE.CylinderGeometry(0.12, 0.25, 2.4, 6), offset: [0, 1.2, 0], tex: 'bark' },
         { geo: new THREE.CylinderGeometry(0.06, 0.1, 1.2, 4), offset: [0.4, 2.0, 0], rot: [0, 0, -0.8] },
         { geo: new THREE.CylinderGeometry(0.05, 0.09, 0.9, 4), offset: [-0.3, 1.6, 0], rot: [0, 0, 0.9] },
       ];
@@ -655,7 +693,7 @@ function decorParts(type: DecorSpec['type']): DecorPart[] {
       ];
     case 'obelisk':
       return [
-        { geo: new THREE.CylinderGeometry(0.25, 0.7, 4, 4), offset: [0, 2, 0] },
+        { geo: new THREE.CylinderGeometry(0.25, 0.7, 4, 4), offset: [0, 2, 0], tex: 'stone', flat: true },
         { geo: new THREE.OctahedronGeometry(0.3, 0), offset: [0, 4.3, 0], color: 0xfbbf24, emissive: 0xf59e0b, shadow: false },
       ];
     case 'mushroom':

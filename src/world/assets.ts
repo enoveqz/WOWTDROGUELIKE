@@ -76,7 +76,7 @@ export function mat(color: number, o: MatOpts = {}): THREE.MeshStandardMaterial 
   if (!m) {
     m = new THREE.MeshStandardMaterial({
       color,
-      flatShading: true,
+      flatShading: false,
       roughness: o.roughness ?? 0.85,
       metalness: o.metalness ?? 0.05,
       emissive: o.emissive ?? 0x000000,

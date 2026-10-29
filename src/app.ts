@@ -9,6 +9,7 @@ import { SaveManager } from './meta/save.ts';
 import { LEVEL_BY_ID } from './config/levels.ts';
 import { fmt } from './ui/dom.ts';
 import { UI } from './ui/ui.ts';
+import { setMaxAnisotropy } from './world/textures.ts';
 
 type AppState = 'menu' | 'run';
 
@@ -37,7 +38,8 @@ export class App {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: s.quality !== 'low', powerPreference: 'high-performance' });
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.05;
+    this.renderer.toneMappingExposure = 1.15;
+    setMaxAnisotropy(this.renderer.capabilities.getMaxAnisotropy());
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
     this.audio = new AudioEngine(s);
     this.input = new Input(canvas, this.save.data.keys);
