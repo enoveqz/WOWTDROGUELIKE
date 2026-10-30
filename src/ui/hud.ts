@@ -142,6 +142,8 @@ export class Hud {
           ${slot('build', 'hammer', k('build'), 'Baumodus: Bauplätze anklicken, um Türme zu bauen')}
         </div>
       </div>
+      <div class="dmg-vignette" data-q="vign"></div>
+      <div class="combo is-hidden" data-q="combo"><b data-q="comboN">0</b><span>KOMBO</span><i data-q="comboBar"></i></div>
       <div class="hud-death is-hidden" data-q="death"><b>Gefallen</b><span data-q="deathTxt"></span></div>
     `;
     this.q = {};
@@ -212,6 +214,24 @@ export class Hud {
       if (p.skillUnlocked(i)) cdSet(`s${i}`, p.skillCd[i], p.skillMax[i], { disabled: p.res < s.cost || !p.alive });
     });
     if (p.racialUnlocked) cdSet('racial', p.racialCd, p.racialMax, { disabled: !p.alive });
+    // Treffer-Vignette & niedriges Leben
+    const low = p.alive ? Math.max(0, 0.35 - p.hp / p.maxHp) / 0.35 : 0;
+    const pulse = low > 0 ? 0.55 + 0.45 * Math.sin(performance.now() * 0.008) : 0;
+    const vig = Math.min(1, Math.max(0, p.flashT / 0.15) * 0.8 + low * pulse * 0.9);
+    q.vign.style.opacity = vig.toFixed(3);
+    // Kombo
+    if (run.combo >= 2) {
+      q.combo.classList.remove('is-hidden');
+      const n = String(run.combo);
+      if (q.comboN.textContent !== n) {
+        q.comboN.textContent = n;
+        q.combo.classList.remove('bump');
+        void q.combo.offsetWidth;
+        q.combo.classList.add('bump');
+        q.combo.dataset.tier = run.combo >= 30 ? '3' : run.combo >= 10 ? '2' : run.combo >= 5 ? '1' : '0';
+      }
+      q.comboBar.style.transform = `scaleX(${Math.max(0, run.comboT / 3.2).toFixed(3)})`;
+    } else q.combo.classList.add('is-hidden');
     // Zielrahmen
     const t = run.target;
     q.tframe.classList.toggle('is-hidden', !t);

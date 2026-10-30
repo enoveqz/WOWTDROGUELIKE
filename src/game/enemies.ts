@@ -47,6 +47,16 @@ export class Enemy {
   chargeVel: { x: number; z: number; t: number } | null = null;
   healCd = 3;
   hitBy = new Set<number>();
+  /** Rückstoß-Geschwindigkeit (Treffer-Feedback). */
+  kx = 0;
+  kz = 0;
+  /** Flugbahn beim Tod. */
+  dvx = 0;
+  dvy = 0;
+  dvz = 0;
+  dspin = 0;
+  dy0 = 0;
+  hitPulse = 0;
   id = 0;
 
   constructor(def: EnemyDef, tintColor: number) {
@@ -105,6 +115,7 @@ export class EnemyManager {
     e.state = 'march';
     e.alive = true;
     e.deathT = 0;
+    e.kx = e.kz = e.dvx = e.dvy = e.dvz = e.dspin = e.hitPulse = 0;
     e.attackCd = 1;
     e.attackAnim = 0;
     e.flashT = 0;
@@ -222,6 +233,16 @@ export class EnemyManager {
         run.combat.damageEnemy(e, dot * burnBonus, { source: 'hero', element: 'fire', canCrit: false, dot: true });
         if (!e.alive) continue;
       }
+      if (e.kx || e.kz) {
+        e.x += e.kx * dt;
+        e.z += e.kz * dt;
+        const k = Math.exp(-9 * dt);
+        e.kx *= k;
+        e.kz *= k;
+        if (Math.abs(e.kx) + Math.abs(e.kz) < 0.05) e.kx = e.kz = 0;
+        run.world.resolve(e, e.radius * 0.7);
+      }
+      if (e.hitPulse > 0) e.hitPulse = Math.max(0, e.hitPulse - dt * 6);
       if (e.flashT > 0) {
         e.flashT -= dt;
         setFlash(e.mats, e.flashT > 0 ? e.flashT / 0.12 : 0);
@@ -516,6 +537,8 @@ export class EnemyManager {
         r.head.rotation.x = -atk * 0.4;
         break;
     }
+    const hp = e.hitPulse;
+    r.body.scale.set(1 + hp * 0.18, 1 - hp * 0.14, 1 + hp * 0.18);
     if (e.status.stunT > 0) r.body.rotation.z = Math.sin(performance.now() * 0.02) * 0.05;
     else r.body.rotation.z = 0;
   }
@@ -524,11 +547,29 @@ export class EnemyManager {
     e.deathT += dt;
     const r = e.rig.root;
     const t = e.deathT;
-    if (t < 0.4) r.rotation.x = -(t / 0.4) * (Math.PI / 2) * (e.rig.anim === 'biped' ? 1 : 0.3);
-    else r.position.y = e.y - (t - 0.4) * 1.2;
-    const s = e.def.scale * (e.affix?.scaleMul ?? 1) * Math.max(0.01, 1 - Math.max(0, t - 0.6) / 0.6);
-    r.scale.setScalar(s);
+    const base = e.def.scale * (e.affix?.scaleMul ?? 1);
     e.bar.group.visible = false;
+    if (e.dvx || e.dvy || e.dvz) {
+      // Durch die Luft geschleudert (Treffer des Helden)
+      e.x += e.dvx * dt;
+      e.z += e.dvz * dt;
+      e.dvx *= Math.exp(-1.5 * dt);
+      e.dvz *= Math.exp(-1.5 * dt);
+      e.dvy -= 28 * dt;
+      e.dy0 += e.dvy * dt;
+      const ground = this.run.world.heightAt(e.x, e.z);
+      if (e.dy0 < 0) {
+        e.dy0 = 0;
+        if (e.dvy < -4) this.run.effects.puff({ x: e.x, y: ground + 0.3, z: e.z }, 0xd6d3d1, 4, 2, 0.6);
+        e.dvy = Math.abs(e.dvy) > 4 ? -e.dvy * 0.3 : 0;
+        e.dspin *= 0.5;
+      }
+      r.position.set(e.x, ground + e.dy0, e.z);
+      r.rotation.x -= e.dspin * dt;
+    } else if (t < 0.4) r.rotation.x = -(t / 0.4) * (Math.PI / 2) * (e.rig.anim === 'biped' ? 1 : 0.3);
+    else r.position.y = e.y - (t - 0.4) * 1.2;
+    r.scale.setScalar(base * Math.max(0.01, 1 - Math.max(0, t - 0.75) / 0.45));
+    if (t > 0.75 && t - dt <= 0.75) this.run.effects.burst({ x: e.x, y: r.position.y + 0.8, z: e.z }, 0x93c5fd, 7, 2.5, 0.7, -3);
   }
 
   clear(): void {

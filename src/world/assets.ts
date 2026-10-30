@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
 
 /**
  * Geteilte Geometrien und Materialien. Wiederkehrende Objekte (Gegner, Türme,
@@ -19,7 +20,12 @@ function cached<T extends THREE.BufferGeometry>(key: string, make: () => T): T {
 const r2 = (n: number) => Math.round(n * 1000) / 1000;
 
 export const geo = {
-  box: (w: number, h: number, d: number) => cached(`box${r2(w)}|${r2(h)}|${r2(d)}`, () => new THREE.BoxGeometry(w, h, d)),
+  /** Abgerundete Quader – weichere, „handgemachte“ Silhouetten für Figuren & Bauten. */
+  box: (w: number, h: number, d: number) =>
+    cached(`box${r2(w)}|${r2(h)}|${r2(d)}`, () => {
+      const m = Math.min(w, h, d);
+      return m < 0.05 ? new THREE.BoxGeometry(w, h, d) : (new RoundedBoxGeometry(w, h, d, 2, m * 0.24) as unknown as THREE.BufferGeometry);
+    }),
   cyl: (rt: number, rb: number, h: number, seg = 6) =>
     cached(`cyl${r2(rt)}|${r2(rb)}|${r2(h)}|${seg}`, () => new THREE.CylinderGeometry(rt, rb, h, seg)),
   cone: (r: number, h: number, seg = 6) => cached(`cone${r2(r)}|${r2(h)}|${seg}`, () => new THREE.ConeGeometry(r, h, seg)),
@@ -163,7 +169,7 @@ export function setFlash(mats: THREE.MeshStandardMaterial[], amount: number, col
   for (const m of mats) {
     if (amount > 0.01) {
       m.emissive.setHex(color);
-      m.emissiveIntensity = amount * 0.9;
+      m.emissiveIntensity = amount * 0.5;
     } else {
       m.emissive.setHex(m.userData.baseEmissive as number);
       m.emissiveIntensity = m.userData.baseIntensity as number;

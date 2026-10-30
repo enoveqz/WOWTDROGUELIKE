@@ -85,6 +85,13 @@ export class Run {
   crystalHp = 1000;
   crystalMax = 1000;
   kills = 0;
+  /** Kurzes Einfrieren bei wuchtigen Treffern (Hitstop). */
+  hitstop = 0;
+  combo = 0;
+  comboT = 0;
+  bestCombo = 0;
+  private framesKills = 0;
+  private lastMulti = 0;
   deaths = 0;
   wavesCleared = 0;
   towersBuilt = 0;
@@ -216,6 +223,31 @@ export class Run {
     this.gold += amount;
     if (pos && this.save.data.settings.damageNumbers) this.ui.floatText(new THREE.Vector3(pos.x, pos.y, pos.z), `+${amount}`, 'gold');
     this.audio.play('coin', 0.25);
+  }
+
+  addHitstop(t: number): void {
+    this.hitstop = Math.min(0.14, Math.max(this.hitstop, t));
+  }
+
+  /** Kombo-Zähler & Mehrfachtötungen – belohnt aggressives Spiel. */
+  onKill(e: Enemy, source: string): void {
+    if (source === 'tower' || source === 'env') return;
+    this.framesKills++;
+    this.combo++;
+    this.comboT = 3.2;
+    this.bestCombo = Math.max(this.bestCombo, this.combo);
+    const tiers: [number, string][] = [[50, 'GÖTTLICH!'], [30, 'UNAUFHALTSAM!'], [20, 'BLUTRAUSCH!'], [10, 'GEMETZEL!'], [5, 'KILLING SPREE!']];
+    for (const [n, label] of tiers) {
+      if (this.combo === n) {
+        const bonus = Math.round(n * 1.5 * this.stats.gold);
+        this.gold += bonus;
+        this.notify(`${label}  ×${n} · +${bonus} Gold`, 'good', true);
+        this.audio.play('levelup', 0.7);
+        this.camera.shake(0.25, 0.25);
+        break;
+      }
+    }
+    void e;
   }
 
   onBossSpawn(e: Enemy): void {
@@ -551,6 +583,18 @@ export class Run {
       this.endTimer -= dt;
       if (this.endTimer < 0) this.ui.onRunEnd(this.buildResult(), this.victoryFlag);
     }
+    // Kombo verfällt, Mehrfachtötung in einem Moment = Hitstop + Wackeln
+    if (this.comboT > 0) {
+      this.comboT -= dt;
+      if (this.comboT <= 0) this.combo = 0;
+    }
+    if (this.framesKills >= 3 && this.time - this.lastMulti > 0.4) {
+      this.lastMulti = this.time;
+      this.addHitstop(0.07 + Math.min(0.05, this.framesKills * 0.01));
+      this.camera.shake(0.3, 0.2);
+      if (this.framesKills >= 4) this.ui.floatText(new THREE.Vector3(this.player.x, this.player.y + 3.2, this.player.z), `${this.framesKills}× KILL`, 'crit');
+    }
+    this.framesKills = 0;
     input.endFrame();
   }
 

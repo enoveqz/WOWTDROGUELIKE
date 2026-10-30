@@ -16,6 +16,8 @@ export interface HitOpts {
   critMul?: number;
   dot?: boolean;
   silent?: boolean;
+  /** Rückstoßstärke (Held/Reittier). */
+  knock?: number;
 }
 
 interface Projectile {
@@ -105,6 +107,23 @@ export class Combat {
     dmg = Math.max(1, dmg);
     e.hp -= dmg;
     e.flashT = 0.12;
+    if (heroSide && !o.dot) {
+      e.hitPulse = 1;
+      const p = run.player;
+      const kb = (o.knock ?? (o.source === 'hero' ? 2.2 : 0)) * (crit ? 1.6 : 1) * (e.def.boss ? 0 : e.def.elite ? 0.35 : 1);
+      if (kb > 0) {
+        const dx = e.x - p.x;
+        const dz = e.z - p.z;
+        const d = Math.hypot(dx, dz) || 1;
+        e.kx += (dx / d) * kb * 4;
+        e.kz += (dz / d) * kb * 4;
+      }
+      if (crit) {
+        run.addHitstop(0.045);
+        run.camera.shake(0.08, 0.1);
+        run.effects.burst({ x: e.x, y: e.y + 1.2, z: e.z }, 0xfde047, 10, 6, 0.35, 2);
+      }
+    }
     if (!e.def.boss) e.bar.group.visible = true;
     run.stats_damageDealt += dmg;
 
@@ -140,9 +159,23 @@ export class Combat {
     run.kills++;
     const gold = Math.max(1, Math.round(e.gold * run.stats.gold * run.event.goldMul));
     run.addGold(gold, { x: e.x, y: e.y + 1.5, z: e.z });
-    run.effects.burst({ x: e.x, y: e.y + 1, z: e.z }, e.def.boss ? 0xfbbf24 : 0xc084fc, e.def.boss ? 80 : 14, e.def.boss ? 10 : 4, 0.7);
+    run.effects.burst({ x: e.x, y: e.y + 1, z: e.z }, e.def.boss ? 0xfbbf24 : 0xfca5a5, e.def.boss ? 80 : 12, e.def.boss ? 10 : 5, 0.55);
     run.audio.play('enemyDie', 0.7);
     if (source === 'mount') run.player.mountXpGain += 3;
+    // Wegschleudern statt Umfallen, wenn der Held den letzten Treffer setzt
+    if ((source === 'hero' || source === 'mount' || source === 'pet') && !e.def.boss) {
+      const p = run.player;
+      const dx = e.x - p.x;
+      const dz = e.z - p.z;
+      const d = Math.hypot(dx, dz) || 1;
+      const force = (source === 'mount' ? 13 : 8) / Math.max(0.7, e.def.scale * (e.def.elite ? 1.6 : 1));
+      e.dvx = (dx / d) * force;
+      e.dvz = (dz / d) * force;
+      e.dvy = 7 + Math.random() * 3;
+      e.dspin = 6 + Math.random() * 6;
+      e.dy0 = 0;
+    }
+    run.onKill(e, source);
     if (e.status.burnT > 0 && run.flags.has('burnSpread')) {
       let n = 0;
       for (const o of run.enemies.inRadius(e.x, e.z, 4)) {

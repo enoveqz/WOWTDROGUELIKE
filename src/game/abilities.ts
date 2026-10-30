@@ -28,7 +28,9 @@ export function castSkill(run: Run, p: Player, id: string, aim: THREE.Vector3, a
       const r = 4 * aoe;
       for (const e of [...run.enemies.inRadius(p.x, p.z, r)]) hit(e, 1.6);
       p.spinT = 0.4;
+      for (let k = 0; k < 3; k++) run.effects.slash(p.x, y + 1, p.z, p.facing + (k * Math.PI * 2) / 3, r, 0xfff1c1, k % 2 === 1);
       run.effects.ring(p.x, y, p.z, r, 0xe2e8f0, 0.35);
+      run.camera.shake(0.15, 0.15);
       run.effects.burst({ x: p.x, y: y + 1, z: p.z }, 0xf8fafc, 18, 6, 0.35, 0);
       run.audio.play('swing');
       return true;

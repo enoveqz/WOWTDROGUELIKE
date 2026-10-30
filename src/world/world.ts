@@ -8,6 +8,7 @@ import { geo, mat } from './assets.ts';
 import { createCrystal, createPad, createPortal, type CrystalRig, type PadRig } from './models.ts';
 import { smoothstep, ValueNoise } from './noise.ts';
 import { getTexture, type TexKey } from './textures.ts';
+import { softDot } from './effects.ts';
 
 export interface Collider {
   x: number;
@@ -484,8 +485,9 @@ export class World {
     g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     const kind = this.biome.particle;
     const m = new THREE.PointsMaterial({
+      map: softDot(),
       color: this.biome.particleColor,
-      size: kind === 'snow' ? 0.22 : kind === 'embers' ? 0.2 : kind === 'sand' ? 0.12 : 0.18,
+      size: kind === 'snow' ? 0.35 : kind === 'embers' ? 0.3 : kind === 'sand' ? 0.18 : 0.26,
       transparent: true,
       opacity: kind === 'sand' ? 0.55 : 0.85,
       depthWrite: false,

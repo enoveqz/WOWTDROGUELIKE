@@ -521,3 +521,16 @@ body[data-quality='low'] .glass, body[data-quality='low'] .tower-panel, body[dat
 .stat { gap: 6px; }
 .stat span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .stat b { white-space: nowrap; }
+
+/* ── Game Feel: Kombo, Treffer-Vignette ───────────────────────── */
+.dmg-vignette { position: absolute; inset: 0; pointer-events: none; opacity: 0; background: radial-gradient(ellipse at center, transparent 45%, rgba(190, 18, 60, 0.55) 100%); }
+.combo { position: absolute; right: 250px; top: 40%; display: flex; flex-direction: column; align-items: center; pointer-events: none; text-shadow: 0 3px 14px rgba(0, 0, 0, 0.8); }
+.combo b { font: 900 3.4rem/0.9 var(--display); color: #fff; letter-spacing: 0.02em; }
+.combo span { font: 800 0.8rem var(--font); letter-spacing: 0.42em; color: var(--gold); margin-top: 2px; }
+.combo i { display: block; width: 90px; height: 4px; margin-top: 6px; border-radius: 4px; background: linear-gradient(90deg, var(--gold), #fb7185); transform-origin: left center; }
+.combo[data-tier='1'] b { color: #fde68a; }
+.combo[data-tier='2'] b { color: #fb923c; text-shadow: 0 0 24px rgba(251, 146, 60, 0.7), 0 3px 14px #000; }
+.combo[data-tier='3'] b { color: #f43f5e; text-shadow: 0 0 30px rgba(244, 63, 94, 0.9), 0 3px 14px #000; }
+.combo.bump b { animation: comboBump 0.25s cubic-bezier(0.2, 1.6, 0.4, 1); }
+@keyframes comboBump { from { transform: scale(1.5) rotate(-6deg); } to { transform: none; } }
+.ft-crit { font-size: 24px; font-weight: 900; color: #fde047; text-shadow: 0 0 12px rgba(253, 224, 71, 0.7), 0 2px 4px #000; }

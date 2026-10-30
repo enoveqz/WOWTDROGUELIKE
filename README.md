@@ -97,8 +97,17 @@ vom Repository-Namen (auch bei Groß-/Kleinschreibung) und ebenso auf jedem ande
 | Mausrad                     | Zoom |
 | `Esc`                       | Menü schließen → Baumodus beenden → Ziel abwählen → Pause |
 
+Optional fängt das Spiel die Maus beim Drehen (Einstellungen → „Maus beim Drehen fangen“), damit der
+Cursor nie am Bildschirmrand hängen bleibt.
+
 Das Turmmenü ist nicht modal: Kampftasten funktionieren weiter, Verkaufen braucht eine Bestätigung,
 und ein per `E` geöffnetes Menü schließt sich, sobald man sich entfernt.
+
+### Kampfgefühl
+
+Hitstop bei kritischen Treffern und Mehrfachtötungen, Rückstoß, weggeschleuderte Gegner, Waffen-Sicheln,
+Kombo-Zähler mit Bonusgold (5 / 10 / 20 / 30 / 50 Tötungen), Treffer-Vignette, Bloom und Farbkorrektur
+(abschaltbar; bei Qualität „Niedrig“ automatisch aus).
 
 ### Sanfter Einstieg
 

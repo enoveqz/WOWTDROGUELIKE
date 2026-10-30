@@ -85,6 +85,7 @@ export class Player {
   /** Automatischer Standardangriff auf das gewählte Ziel (Rechtsklick). */
   autoAttack = false;
   attacksDone = 0;
+  private swingFlip = false;
   turning = false;
   distanceWalked = 0;
   readonly aimPoint = new THREE.Vector3();
@@ -562,9 +563,9 @@ export class Player {
         this.res = Math.min(this.maxRes, this.res + this.cls.resource.onHit);
         if (++hits >= maxHits) break;
       }
-      const sx = this.x + dx * 1.4;
-      const sz = this.z + dz * 1.4;
-      run.effects.ring(sx, this.y + 0.8, sz, atk.range * 0.7, this.cls.id === 'rogue' ? 0xc4b5fd : 0xe2e8f0, 0.18, 0.5);
+      this.swingFlip = !this.swingFlip;
+      run.effects.slash(this.x, this.y + 1.05, this.z, Math.atan2(dx, dz), atk.range + 0.6, this.cls.id === 'rogue' ? 0xc4b5fd : 0xfff1c1, this.swingFlip);
+      if (hits > 0) run.camera.shake(0.05 + hits * 0.02, 0.08);
     } else {
       const tip = new THREE.Vector3();
       this.rig.weaponTip.getWorldPosition(tip);

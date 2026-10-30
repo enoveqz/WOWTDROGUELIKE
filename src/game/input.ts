@@ -86,29 +86,56 @@ export class Input {
     this.mouse.inside = true;
   }
 
+  /**
+   * Liest den echten Tastenzustand aus e.buttons. Wichtig: Wird eine zweite
+   * Maustaste gedrückt, während die erste gehalten wird, feuert der Browser
+   * kein pointerdown, sondern nur pointermove – deshalb kein button-basiertes
+   * Down/Up-Tracking.
+   */
+  private syncButtons(e: PointerEvent): void {
+    const left = (e.buttons & 1) !== 0;
+    const right = (e.buttons & 2) !== 0;
+    for (const [i, now] of [[0, left], [1, right]] as const) {
+      const was = i === 0 ? this.leftDown : this.rightDown;
+      if (now && !was) {
+        this.downPos[i] = { x: this.mouse.x, y: this.mouse.y, moved: 0 };
+        if (i === 0) this.leftDown = true;
+        else this.rightDown = true;
+      } else if (!now && was) {
+        const dragged = i === 0 ? this.leftDrag : this.rightDrag;
+        const p = this.downPos[i];
+        if (!dragged) {
+          if (i === 0) this.leftClick = { x: p.x, y: p.y };
+          else this.rightClick = { x: p.x, y: p.y };
+        }
+        if (i === 0) ((this.leftDown = false), (this.leftDrag = false));
+        else ((this.rightDown = false), (this.rightDrag = false));
+      }
+    }
+    if (!this.leftDown && !this.rightDown) this.endLook();
+  }
+
   private onMove(e: PointerEvent): void {
     const dragging = this.leftDown || this.rightDown;
     if (!dragging) this.setNdc(e);
-    if (!dragging) return;
-    for (const [i, isDown] of [[0, this.leftDown], [1, this.rightDown]] as const) {
-      if (isDown) this.downPos[i].moved += Math.abs(e.movementX) + Math.abs(e.movementY);
-    }
-    if (this.leftDown && this.downPos[0].moved > 5) this.leftDrag = true;
-    if (this.rightDown && this.downPos[1].moved > 5) this.rightDrag = true;
+    this.syncButtons(e);
+    if (!this.leftDown && !this.rightDown) return;
+    const mx = e.movementX || 0;
+    const my = e.movementY || 0;
+    if (this.leftDown) this.downPos[0].moved += Math.abs(mx) + Math.abs(my);
+    if (this.rightDown) this.downPos[1].moved += Math.abs(mx) + Math.abs(my);
+    if (this.leftDown && this.downPos[0].moved > 4) this.leftDrag = true;
+    if (this.rightDown && this.downPos[1].moved > 4) this.rightDrag = true;
     if (this.leftDrag || this.rightDrag) {
-      this.lookDX += e.movementX;
-      this.lookDY += e.movementY;
-      this.canvas.style.cursor = 'none';
+      this.lookDX += mx;
+      this.lookDY += my;
+      this.beginLook();
     }
   }
 
   private onPointerDown(e: PointerEvent): void {
-    this.setNdc(e);
-    const i = e.button === 0 ? 0 : e.button === 2 ? 1 : -1;
-    if (i < 0) return;
-    this.downPos[i] = { x: this.mouse.x, y: this.mouse.y, moved: 0 };
-    if (i === 0) this.leftDown = true;
-    else this.rightDown = true;
+    if (!this.leftDown && !this.rightDown) this.setNdc(e);
+    this.syncButtons(e);
     try {
       this.canvas.setPointerCapture(e.pointerId);
     } catch {
@@ -117,19 +144,31 @@ export class Input {
   }
 
   private onPointerUp(e: PointerEvent): void {
-    const i = e.button === 0 ? 0 : e.button === 2 ? 1 : -1;
-    if (i < 0) return;
-    const wasDown = i === 0 ? this.leftDown : this.rightDown;
-    if (!wasDown) return;
-    const dragged = i === 0 ? this.leftDrag : this.rightDrag;
-    const p = this.downPos[i];
-    if (!dragged) {
-      if (i === 0) this.leftClick = { x: p.x, y: p.y };
-      else this.rightClick = { x: p.x, y: p.y };
+    this.syncButtons(e);
+  }
+
+  /** Maus fangen (optional) bzw. Cursor verstecken, solange gedreht wird. */
+  private looking = false;
+  pointerLock = false;
+  private beginLook(): void {
+    if (this.looking) return;
+    this.looking = true;
+    this.canvas.style.cursor = 'none';
+    if (this.pointerLock && document.pointerLockElement !== this.canvas) {
+      try {
+        const r = this.canvas.requestPointerLock() as unknown;
+        if (r instanceof Promise) r.catch(() => undefined);
+      } catch {
+        /* nicht verfügbar */
+      }
     }
-    if (i === 0) ((this.leftDown = false), (this.leftDrag = false));
-    else ((this.rightDown = false), (this.rightDrag = false));
-    if (!this.leftDrag && !this.rightDrag) this.canvas.style.cursor = '';
+  }
+
+  private endLook(): void {
+    if (!this.looking) return;
+    this.looking = false;
+    this.canvas.style.cursor = '';
+    if (document.pointerLockElement === this.canvas) document.exitPointerLock();
   }
 
   releaseAll(): void {
@@ -138,7 +177,7 @@ export class Input {
     this.leftDown = this.rightDown = this.leftDrag = this.rightDrag = false;
     this.leftClick = this.rightClick = null;
     this.lookDX = this.lookDY = 0;
-    this.canvas.style.cursor = '';
+    this.endLook();
   }
 
   held(a: Action): boolean {

@@ -380,6 +380,8 @@ export class Screens {
           ${toggle('damageNumbers', 'Schadenszahlen', s.damageNumbers)}
           ${toggle('screenShake', 'Kamerawackeln', s.screenShake)}
           ${toggle('showMinimap', 'Minimap anzeigen', s.showMinimap)}
+          ${toggle('bloom', 'Leuchteffekte (Bloom)', s.bloom)}
+          ${toggle('mouseLock', 'Maus beim Drehen fangen (wie im MMORPG, Cursor stößt nie an den Rand)', s.mouseLock)}
           <label class="set-row"><span>Kamera-Drehempfindlichkeit</span><input type="range" min="0.3" max="2" step="0.1" value="${s.cameraSensitivity}" data-set="cameraSensitivity"><output>${s.cameraSensitivity.toFixed(1)}</output></label>
           <p class="muted small">Qualitätsänderungen (Dichte der Dekoration, Schattenauflösung) wirken ab dem nächsten Run vollständig.</p>
         </section>
@@ -580,7 +582,7 @@ export class Screens {
         this.refresh();
         break;
       case 'toggle': {
-        const key = id as 'muted' | 'shadows' | 'particles' | 'damageNumbers' | 'screenShake' | 'showMinimap';
+        const key = id as 'muted' | 'shadows' | 'particles' | 'damageNumbers' | 'screenShake' | 'showMinimap' | 'mouseLock' | 'bloom';
         d.settings[key] = !d.settings[key];
         this.save.save();
         app.applySettings();

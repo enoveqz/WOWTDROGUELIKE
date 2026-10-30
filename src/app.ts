@@ -10,6 +10,7 @@ import { LEVEL_BY_ID } from './config/levels.ts';
 import { fmt } from './ui/dom.ts';
 import { UI } from './ui/ui.ts';
 import { setMaxAnisotropy } from './world/textures.ts';
+import { PostFX } from './world/postfx.ts';
 
 type AppState = 'menu' | 'run';
 
@@ -25,6 +26,7 @@ export class App {
   readonly input: Input;
   readonly showcase: Showcase;
   readonly ui: UI;
+  readonly fx: PostFX;
   run: Run | null = null;
   state: AppState = 'menu';
   private paused = false;
@@ -41,6 +43,7 @@ export class App {
     this.renderer.toneMappingExposure = 1.15;
     setMaxAnisotropy(this.renderer.capabilities.getMaxAnisotropy());
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.fx = new PostFX(this.renderer);
     this.audio = new AudioEngine(s);
     this.input = new Input(canvas, this.save.data.keys);
     this.showcase = new Showcase(window.innerWidth / window.innerHeight);
@@ -73,14 +76,22 @@ export class App {
     if (this.state === 'run' && this.run) {
       const run = this.run;
       const frozen = this.paused || run.choosing;
-      if (!frozen) run.update(dt);
+      if (!frozen) {
+        // Hitstop: Zeit läuft kurz fast still, Eingaben werden trotzdem verarbeitet
+        let sdt = dt;
+        if (run.hitstop > 0) {
+          run.hitstop -= dt;
+          sdt = dt * 0.06;
+        }
+        run.update(sdt);
+      }
       else this.input.endFrame();
-      this.renderer.render(run.scene, run.camera.camera);
+      this.fx.render(run.scene, run.camera.camera);
       this.ui.update(frozen ? 0 : dt, run.camera.camera);
     } else {
       this.showcase.update(dt);
       this.input.endFrame();
-      this.renderer.render(this.showcase.scene, this.showcase.camera);
+      this.fx.render(this.showcase.scene, this.showcase.camera);
       this.ui.update(dt, null);
     }
   };
@@ -93,6 +104,7 @@ export class App {
     const maxDpr = q === 'high' ? 2 : q === 'medium' ? 1.5 : 1;
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, maxDpr));
     this.renderer.setSize(w, h, false);
+    this.fx.setSize(w, h, this.renderer.getPixelRatio());
     this.showcase.resize(w / h);
     this.run?.camera.resize(w / h);
   }
@@ -100,6 +112,11 @@ export class App {
   applySettings(): void {
     const s = this.save.data.settings;
     document.body.dataset.quality = s.quality;
+    if (this.fx) this.fx.enabled = s.bloom && s.quality !== 'low';
+    if (this.fx && this.run) {
+      const b = this.run.world.biome.id;
+      this.fx.setBloom(b === 'volcano' ? 0.75 : b === 'snow' ? 0.35 : 0.5, b === 'snow' ? 0.92 : 0.8);
+    } else this.fx?.setBloom(0.7, 0.7);
     this.audio.applySettings(s);
     const shadows = s.shadows && s.quality !== 'low';
     if (this.renderer.shadowMap.enabled !== shadows) {
@@ -119,6 +136,7 @@ export class App {
       this.run.effects.particleScale = s.particles ? 1 : 0.25;
     }
     this.input.setKeys(this.save.data.keys);
+    this.input.pointerLock = s.mouseLock;
     this.resizeQueued = true;
   }
 

@@ -17,6 +17,8 @@ export interface Settings {
   screenShake: boolean;
   showMinimap: boolean;
   cameraSensitivity: number;
+  mouseLock: boolean;
+  bloom: boolean;
 }
 
 export interface LevelProgress {
@@ -55,6 +57,8 @@ export const DEFAULT_SETTINGS: Settings = {
   screenShake: true,
   showMinimap: true,
   cameraSensitivity: 1,
+  mouseLock: false,
+  bloom: true,
 };
 
 export function defaultSave(): SaveData {

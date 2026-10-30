@@ -30,7 +30,7 @@ class ParticlePool {
     const g = new THREE.BufferGeometry();
     g.setAttribute('position', new THREE.BufferAttribute(this.pos, 3));
     g.setAttribute('color', new THREE.BufferAttribute(this.col, 3));
-    const m = new THREE.PointsMaterial({ size, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
+    const m = new THREE.PointsMaterial({ size, map: softDot(), vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, sizeAttenuation: true });
     this.points = new THREE.Points(g, m);
     this.points.frustumCulled = false;
   }
@@ -86,7 +86,7 @@ interface Timed {
   mat: THREE.MeshBasicMaterial;
   t: number;
   dur: number;
-  kind: 'ring' | 'beam' | 'zone' | 'tele' | 'flash';
+  kind: 'ring' | 'beam' | 'zone' | 'tele' | 'flash' | 'slash';
   r0: number;
   r1: number;
   opacity: number;
@@ -106,14 +106,32 @@ export class Effects {
   private freeBeams: Timed[] = [];
   private freeZones: Timed[] = [];
   private freeTele: Timed[] = [];
+  private freeSlash: Timed[] = [];
+  private slashGeo = (() => {
+    const arc = 2.4;
+    const g = new THREE.RingGeometry(0.45, 1, 28, 1, -Math.PI / 2 - arc / 2, arc);
+    g.rotateX(-Math.PI / 2);
+    // Sichel: außen hell, innen ausblendend
+    const pos = g.attributes.position as THREE.BufferAttribute;
+    const col = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      const r = Math.hypot(pos.getX(i), pos.getZ(i));
+      const a = Math.atan2(pos.getX(i), pos.getZ(i));
+      const edge = Math.max(0, 1 - Math.abs(a) / (arc / 2));
+      const v = Math.pow((r - 0.45) / 0.55, 1.6) * (0.3 + 0.7 * edge);
+      col[i * 3] = col[i * 3 + 1] = col[i * 3 + 2] = v;
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return g;
+  })();
   private projPools = new Map<string, THREE.Mesh[]>();
   private tmpColor = new THREE.Color();
   private up = new THREE.Vector3(0, 1, 0);
   particleScale = 1;
 
   constructor(particlesEnabled: boolean) {
-    this.sparks = new ParticlePool(1400, 0.28);
-    this.puffs = new ParticlePool(500, 0.7);
+    this.sparks = new ParticlePool(1600, 0.42);
+    this.puffs = new ParticlePool(500, 1.1);
     this.group.add(this.sparks.points, this.puffs.points);
     this.particleScale = particlesEnabled ? 1 : 0.25;
   }
@@ -155,6 +173,29 @@ export class Effects {
     t.opacity = 0.9;
     t.active = true;
     t.obj.visible = true;
+    this.timed.push(t);
+  }
+
+  /** Sichelförmiger Waffenhieb in Blickrichtung. */
+  slash(x: number, y: number, z: number, dir: number, radius: number, color: number, flip = false): void {
+    let t = this.freeSlash.pop();
+    if (!t) {
+      const m = new THREE.MeshBasicMaterial({ color, vertexColors: true, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+      const obj = new THREE.Mesh(this.slashGeo, m);
+      t = { obj, mat: m, t: 0, dur: 0.22, kind: 'slash', r0: 0, r1: 0, opacity: 1, active: false };
+      this.group.add(obj);
+    }
+    t.mat.color.setHex(color);
+    t.obj.position.set(x, y, z);
+    t.obj.rotation.set(0, dir, flip ? Math.PI : 0);
+    t.r1 = radius;
+    t.r0 = dir;
+    t.t = 0;
+    t.dur = 0.22;
+    t.opacity = 1;
+    t.active = true;
+    t.obj.visible = true;
+    t.obj.scale.setScalar(radius * 0.7);
     this.timed.push(t);
   }
 
@@ -312,6 +353,13 @@ export class Effects {
           t.mat.opacity = t.opacity * Math.max(0, Math.min(fadeIn, fadeOut)) * pulse;
           break;
         }
+        case 'slash': {
+          const e = 1 - Math.pow(1 - f, 3);
+          t.obj.scale.setScalar(t.r1 * (0.7 + 0.4 * e));
+          t.obj.rotation.y = t.r0 + (e - 0.5) * 0.5 * (t.obj.rotation.z ? -1 : 1);
+          t.mat.opacity = 1 - f * f;
+          break;
+        }
         case 'tele': {
           t.mat.opacity = 0.18 + f * 0.12;
           t.fill!.scale.setScalar(Math.max(0.01, f));
@@ -329,6 +377,7 @@ export class Effects {
         else if (t.kind === 'beam') this.freeBeams.push(t);
         else if (t.kind === 'zone') this.freeZones.push(t);
         else if (t.kind === 'tele') this.freeTele.push(t);
+        else if (t.kind === 'slash') this.freeSlash.push(t);
       }
     }
   }
@@ -341,8 +390,28 @@ export class Effects {
         (m.material as THREE.Material).dispose();
       }
     });
-    for (const t of [...this.timed, ...this.freeRings, ...this.freeBeams, ...this.freeZones, ...this.freeTele]) t.mat.dispose();
+    for (const t of [...this.timed, ...this.freeRings, ...this.freeBeams, ...this.freeZones, ...this.freeTele, ...this.freeSlash]) t.mat.dispose();
+    this.slashGeo.dispose();
   }
+}
+
+let dotTex: THREE.Texture | null = null;
+/** Weicher, runder Leuchtpunkt für Partikel (statt eckiger Pixel). */
+export function softDot(): THREE.Texture {
+  if (dotTex) return dotTex;
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  grd.addColorStop(0, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.25, 'rgba(255,255,255,0.85)');
+  grd.addColorStop(0.6, 'rgba(255,255,255,0.25)');
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, 64, 64);
+  dotTex = new THREE.CanvasTexture(c);
+  dotTex.colorSpace = THREE.SRGBColorSpace;
+  return dotTex;
 }
 
 const sectorCache = new Map<number, THREE.BufferGeometry>();
